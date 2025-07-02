@@ -363,336 +363,330 @@ def format_timedelta(days):
 
 
 # --- MAIN LOGIC ---
-
-# Removed the empty find_and_display_positions()
-# def find_and_display_positions():
-#     """The main function to find, calculate, and display position details."""
-#     web3 = Web3(Web3.HTTPProvider(RPC_URL))
-#     if not web3.is_connected():
-#         print(f"Failed to connect to Sonic RPC at {RPC_URL}")
-#         return
-
 def find_and_display_positions(web3_instance, wallet_address):
-    """The main function to find, calculate, and display position details."""
-    web3 = web3_instance
-    if not web3.is_connected():
-        return {"error": f"Failed to connect to Sonic RPC at {RPC_URL}"}
+        """The main function to find, calculate, and display position details."""
+        web3 = web3_instance
+        if not web3.is_connected():
+            return {"error": f"Failed to connect to Sonic RPC at {RPC_URL}"}
 
-    initial_data_cache = load_cache()
+        initial_data_cache = load_cache()
 
-    # Pre-fetch prices for known tokens using the new cached function
-    price_cache = {}
-    for token_address, token_info in KNOWN_TOKENS.items():
-        if token_info['symbol'] == 'USDC':
-            price_cache[token_info['symbol']] = Decimal('1.0') # Hardcode USDC price to $1
-        elif token_info.get('api_id'):
-            price = get_coingecko_price(token_info['api_id']) # Use the cached CoinGecko function
-            if price:
-                price_cache[token_info['symbol']] = price
+        # Pre-fetch prices for known tokens using the new cached function
+        price_cache = {}
+        for token_address, token_info in KNOWN_TOKENS.items():
+            if token_info['symbol'] == 'USDC':
+                price_cache[token_info['symbol']] = Decimal('1.0') # Hardcode USDC price to $1
+            elif token_info.get('api_id'):
+                price = get_coingecko_price(token_info['api_id']) # Use the cached CoinGecko function
+                if price:
+                    price_cache[token_info['symbol']] = price
 
-    nft_contract = web3.eth.contract(address=web3.to_checksum_address(NFT_MANAGER_CONTRACT), abi=NFT_MANAGER_ABI)
-    try:
-        balance = nft_contract.functions.balanceOf(wallet_address).call()
-    except Exception as e:
-        return {"error": f"Error getting wallet balance: {e}"}
-
-    if balance == 0:
-        return {"message": "No positions found for this wallet."}
-
-    active_positions = []
-    consecutive_closed = 0
-    for i in range(balance - 1, -1, -1):
+        nft_contract = web3.eth.contract(address=web3.to_checksum_address(NFT_MANAGER_CONTRACT), abi=NFT_MANAGER_ABI)
         try:
-            token_id = nft_contract.functions.tokenOfOwnerByIndex(wallet_address, i).call()
-            pos_data = nft_contract.functions.positions(token_id).call()
-            if pos_data[5] > 0: # Check for liquidity
-                consecutive_closed = 0
-                active_positions.append({'token_id': token_id, 'data': pos_data})
-            else:
-                consecutive_closed += 1
-
-            if consecutive_closed >= 2:
-                break
+            balance = nft_contract.functions.balanceOf(wallet_address).call()
         except Exception as e:
-            pass # Silently skip positions that cause errors
+            return {"error": f"Error getting wallet balance: {e}"}
 
-    active_positions.reverse()
+        if balance == 0:
+            return {"message": "No positions found for this wallet."}
 
-    if not active_positions:
-        return {"message": "No active positions found."}
-
-    all_positions_data = []
-    token_info_cache = {}
-    total_portfolio_value = Decimal(0)
-    cache_updated = False
-
-    for i, pos_container in enumerate(active_positions):
-        pos = pos_container['data']
-        token_id = pos_container['token_id']
-        token_id_str = str(token_id)
-
-        token0_addr, token1_addr, _, tickLower, tickUpper, liquidity, *_ = pos
-        token0_info = get_token_info(web3, token0_addr, token_info_cache)
-        token1_info = get_token_info(web3, token1_addr, token_info_cache)
-
-        current_pool_info = get_pool_info(web3, token0_addr, token1_addr)
-        if not current_pool_info:
-            continue
-
-        current_sqrt_price = current_pool_info['sqrt_price']
-        current_tick = current_pool_info['current_tick']
-        amount0, amount1 = calculate_token_amounts(liquidity, current_sqrt_price, tickLower, tickUpper)
-        current_price = tick_to_price(current_tick, token0_info['decimals'], token1_info['decimals'])
-
-        if token_id_str not in initial_data_cache:
-            cache_updated = True
-            creation_info = get_position_creation_info(web3, NFT_MANAGER_CONTRACT, token_id, wallet_address)
-            # creation_info = get_position_creation_info(web3, NFT_MANAGER_CONTRACT, token_id)
-            if creation_info:
-                hist_pool_info = get_pool_info(web3, token0_addr, token1_addr, creation_info['block_number'])
-                if hist_pool_info:
-                    initial_amount0, initial_amount1 = calculate_token_amounts(liquidity, hist_pool_info['sqrt_price'], tickLower, tickUpper)
-                    initial_price = tick_to_price(hist_pool_info['current_tick'], token0_info['decimals'], token1_info['decimals'])
-
-                    initial_data_cache[token_id_str] = {
-                        'date': datetime.fromtimestamp(creation_info['timestamp']).strftime('%a %Y-%m-%d %H:%M:%S'),
-                        'block': creation_info['block_number'],
-                        'amount0': initial_amount0,
-                        'amount1': initial_amount1,
-                        'price': str(initial_price)
-                    }
-            else:
-                initial_data_cache[token_id_str] = {
-                    'date': datetime.now().strftime('%a %Y-%m-%d %H:%M:%S') + " (Current)",
-                    'block': 'N/A',
-                    'amount0': amount0,
-                    'amount1': amount1,
-                    'price': f"{current_price:.4f}"
-                }
-
-        position_usd_value = Decimal(0)
-        price0 = price_cache.get(token0_info['symbol'])
-        price1 = price_cache.get(token1_info['symbol'])
-
-        if price0:
-            position_usd_value += (Decimal(amount0) / Decimal(10**token0_info['decimals'])) * price0
-        if price1:
-            position_usd_value += (Decimal(amount1) / Decimal(10**token1_info['decimals'])) * price1
-
-        if position_usd_value == 0:
-            if token1_info['symbol'] == 'USDC' and price0:
-                 position_usd_value = (Decimal(amount0) / Decimal(10**token0_info['decimals']) * price0) + (Decimal(amount1) / Decimal(10**token1_info['decimals']))
-            elif token0_info['symbol'] == 'USDC' and price1:
-                 position_usd_value = (Decimal(amount1) / Decimal(10**token1_info['decimals']) * price1) + (Decimal(amount0) / Decimal(10**token0_info['decimals']))
-            # Fallback if neither token's price is available
-            else:
-                position_usd_value = Decimal(0)
-
-
-        total_portfolio_value += position_usd_value
-
-        position_status = "IN RANGE" if tickLower <= current_tick <= tickUpper else "OUT OF RANGE"
-
-        price_lower = tick_to_price(tickLower, token0_info['decimals'], token1_info['decimals'])
-        price_upper = tick_to_price(tickUpper, token0_info['decimals'], token1_info['decimals'])
-
-        initial_info = initial_data_cache.get(token_id_str, {})
-        initial_usd_value = Decimal(0)
-        if initial_info and 'price' in initial_info and price0 and price1:
-            initial_amount0_adj = Decimal(initial_info.get('amount0', 0)) / Decimal(10**token0_info['decimals'])
-            initial_amount1_adj = Decimal(initial_info.get('amount1', 0)) / Decimal(10**token1_info['decimals'])
-            # Approximate initial USD value using current token prices and initial amounts
-            # This is an estimation as historical token prices are not fetched.
-            if token1_info['symbol'] == 'USDC':
-                initial_usd_value = (initial_amount0_adj * Decimal(initial_info['price'])) + initial_amount1_adj
-            elif token0_info['symbol'] == 'USDC':
-                initial_usd_value = (initial_amount1_adj * (1/Decimal(initial_info['price']))) + initial_amount0_adj
-            else:
-                 # Fallback for non-USDC pairs
-                 initial_usd_value = (initial_amount0_adj * price0) + (initial_amount1_adj * price1)
-
-
-        emissions = get_emissions_rewards(web3, token_id, current_pool_info['pool_address'])
-        rewards_data = []
-        total_rewards_usd = Decimal(0)
-        if emissions:
-            for token_addr, amount in emissions.items():
-                reward_token_info = get_token_info(web3, token_addr, token_info_cache)
-                display_amount = format_amount(amount, reward_token_info['decimals'])
-                usd_value = Decimal(0)
-                reward_price = price_cache.get(reward_token_info['symbol'])
-                if reward_price:
-                    raw_amount = Decimal(amount) / Decimal(10**reward_token_info['decimals'])
-                    usd_value = raw_amount * reward_price
-                    if reward_token_info['symbol'] == 'xSHADOW':
-                        total_rewards_usd += (usd_value / 2)
-                    else:
-                        total_rewards_usd += usd_value
-
-                rewards_data.append({
-                    "amount": display_amount,
-                    "symbol": reward_token_info['symbol'],
-                    "usd_value": f"{usd_value / 2 if reward_token_info['symbol'] == 'xSHADOW' else usd_value:,.2f}",
-                })
-
-        annualized_apr = Decimal(0)
-        days_active = Decimal(0)
-        if initial_info and 'date' in initial_info and " (Current)" not in initial_info['date']:
+        active_positions = []
+        consecutive_closed = 0
+        for i in range(balance - 1, -1, -1):
             try:
-                creation_date_str = initial_info['date']
-                creation_datetime = datetime.strptime(creation_date_str, '%a %Y-%m-%d %H:%M:%S')
-                time_difference = datetime.now() - creation_datetime
-                days_active = Decimal(time_difference.total_seconds()) / Decimal(86400)
+                token_id = nft_contract.functions.tokenOfOwnerByIndex(wallet_address, i).call()
+                pos_data = nft_contract.functions.positions(token_id).call()
+                if pos_data[5] > 0: # Check for liquidity
+                    consecutive_closed = 0
+                    active_positions.append({'token_id': token_id, 'data': pos_data})
+                else:
+                    consecutive_closed += 1
 
-                if position_usd_value > 0 and days_active > 0:
-                    annualized_apr = (total_rewards_usd / position_usd_value) / (days_active / Decimal(365)) * Decimal(100)
+                if consecutive_closed >= 2:
+                    break
             except Exception as e:
-                pass
+                # print(f"   Warning: Skipping token {nft_contract.functions.tokenOfOwnerByIndex.w3.eth.checksum_address(wallet_address), i} due to error: {e}")
+                pass # Silently skip positions that cause errors
 
-        il_data = {}
-        if initial_info and 'price' in initial_info and " (Current)" not in initial_info['date']:
-            try:
-                initial_price = Decimal(initial_info['price'])
+        active_positions.reverse()
 
-                il_perc_lower = calculate_il_percentage(initial_price, price_lower, price_lower, price_upper)
-                il_perc_upper = calculate_il_percentage(initial_price, price_upper, price_lower, price_upper)
+        if not active_positions:
+            return {"message": "No active positions found."}
 
-                initial_amount0_adj = Decimal(initial_info['amount0']) / Decimal(10**token0_info['decimals'])
-                initial_amount1_adj = Decimal(initial_info['amount1']) / Decimal(10**token1_info['decimals'])
+        all_positions_data = []
+        token_info_cache = {}
+        total_portfolio_value = Decimal(0)
+        cache_updated = False
 
-                hodl_val_at_lower = initial_amount0_adj * price_lower + initial_amount1_adj
-                il_usd_lower = il_perc_lower * hodl_val_at_lower
+        for i, pos_container in enumerate(active_positions):
+            pos = pos_container['data']
+            token_id = pos_container['token_id']
+            token_id_str = str(token_id)
 
-                hodl_val_at_upper = initial_amount0_adj * price_upper + initial_amount1_adj
-                il_usd_upper = il_perc_upper * hodl_val_at_upper
+            token0_addr, token1_addr, _, tickLower, tickUpper, liquidity, *_ = pos
+            token0_info = get_token_info(web3, token0_addr, token_info_cache)
+            token1_info = get_token_info(web3, token1_addr, token_info_cache)
 
-                days_to_breakeven_lower = None
-                days_to_breakeven_upper = None
-                if annualized_apr > 0 and position_usd_value > 0:
-                    daily_rewards_usd = (position_usd_value * (annualized_apr / Decimal(100))) / Decimal(365)
-                    if daily_rewards_usd > 0:
-                        days_to_breakeven_lower = il_usd_lower / daily_rewards_usd if il_usd_lower > 0 else Decimal(0)
-                        days_to_breakeven_upper = il_usd_upper / daily_rewards_usd if il_usd_upper > 0 else Decimal(0)
+            current_pool_info = get_pool_info(web3, token0_addr, token1_addr)
+            if not current_pool_info:
+                # If pool info cannot be fetched, skip this position as it's critical
+                continue
 
-                time_remaining_lower = None
-                fee_il_diff_lower = None
-                if days_to_breakeven_lower is not None:
+            current_sqrt_price = current_pool_info['sqrt_price']
+            current_tick = current_pool_info['current_tick']
+            amount0, amount1 = calculate_token_amounts(liquidity, current_sqrt_price, tickLower, tickUpper)
+            current_price = tick_to_price(current_tick, token0_info['decimals'], token1_info['decimals'])
+
+            if token_id_str not in initial_data_cache:
+                cache_updated = True
+                creation_info = get_position_creation_info(web3, NFT_MANAGER_CONTRACT, token_id, wallet_address)
+                if creation_info:
+                    hist_pool_info = get_pool_info(web3, token0_addr, token1_addr, creation_info['block_number'])
+                    if hist_pool_info:
+                        initial_amount0, initial_amount1 = calculate_token_amounts(liquidity, hist_pool_info['sqrt_price'], tickLower, tickUpper)
+                        initial_price = tick_to_price(hist_pool_info['current_tick'], token0_info['decimals'], token1_info['decimals'])
+
+                        initial_data_cache[token_id_str] = {
+                            'date': datetime.fromtimestamp(creation_info['timestamp']).strftime('%a %Y-%m-%d %H:%M:%S'),
+                            'block': creation_info['block_number'],
+                            'amount0': initial_amount0,
+                            'amount1': initial_amount1,
+                            'price': str(initial_price)
+                        }
+                else:
+                    # Fallback for new positions if creation info not found
+                    initial_data_cache[token_id_str] = {
+                        'date': datetime.now().strftime('%a %Y-%m-%d %H:%M:%S') + " (Current)",
+                        'block': 'N/A',
+                        'amount0': amount0,
+                        'amount1': amount1,
+                        'price': str(current_price) # Ensure price is a string
+                    }
+
+            position_usd_value = Decimal(0)
+            price0 = price_cache.get(token0_info['symbol'])
+            price1 = price_cache.get(token1_info['symbol'])
+
+            if price0:
+                position_usd_value += (Decimal(amount0) / Decimal(10**token0_info['decimals'])) * price0
+            if price1:
+                position_usd_value += (Decimal(amount1) / Decimal(10**token1_info['decimals'])) * price1
+
+            # Handle cases where one token might be USDC
+            if position_usd_value == 0:
+                if token1_info['symbol'] == 'USDC' and price0:
+                    position_usd_value = (Decimal(amount0) / Decimal(10**token0_info['decimals']) * price0) + (Decimal(amount1) / Decimal(10**token1_info['decimals']))
+                elif token0_info['symbol'] == 'USDC' and price1:
+                    position_usd_value = (Decimal(amount1) / Decimal(10**token1_info['decimals']) * price1) + (Decimal(amount0) / Decimal(10**token0_info['decimals']))
+                else:
+                    position_usd_value = Decimal(0) # Ensure it's Decimal 0 if no value could be computed
+
+            total_portfolio_value += position_usd_value
+
+            position_status = "IN RANGE" if tickLower <= current_tick <= tickUpper else "OUT OF RANGE"
+
+            price_lower = tick_to_price(tickLower, token0_info['decimals'], token1_info['decimals'])
+            price_upper = tick_to_price(tickUpper, token0_info['decimals'], token1_info['decimals'])
+
+            initial_info = initial_data_cache.get(token_id_str, {})
+            initial_usd_value = Decimal(0)
+            initial_price_val = Decimal(0) # Initialize with Decimal 0
+            if 'price' in initial_info and initial_info['price'] != 'N/A':
+                try:
+                    initial_price_val = Decimal(initial_info['price'])
+                except Exception:
+                    initial_price_val = Decimal(0) # Default to 0 if conversion fails
+
+
+            if initial_info and initial_price_val > 0: # Check if initial_price_val is valid
+                initial_amount0_adj = Decimal(initial_info.get('amount0', 0)) / Decimal(10**token0_info['decimals'])
+                initial_amount1_adj = Decimal(initial_info.get('amount1', 0)) / Decimal(10**token1_info['decimals'])
+
+                if token1_info['symbol'] == 'USDC':
+                    initial_usd_value = (initial_amount0_adj * initial_price_val) + initial_amount1_adj
+                elif token0_info['symbol'] == 'USDC':
+                    initial_usd_value = (initial_amount1_adj * (1/initial_price_val)) + initial_amount0_adj
+                elif price0 and price1: # Fallback for non-USDC pairs, use current prices
+                     initial_usd_value = (initial_amount0_adj * price0) + (initial_amount1_adj * price1)
+                else:
+                    initial_usd_value = Decimal(0) # Ensure it's Decimal 0 if no value could be computed
+
+
+            emissions = get_emissions_rewards(web3, token_id, current_pool_info['pool_address'])
+            rewards_data = []
+            total_rewards_usd = Decimal(0)
+            if emissions:
+                for token_addr, amount in emissions.items():
+                    reward_token_info = get_token_info(web3, token_addr, token_info_cache)
+                    display_amount = format_amount(amount, reward_token_info['decimals'])
+                    usd_value = Decimal(0)
+                    reward_price = price_cache.get(reward_token_info['symbol'])
+                    if reward_price:
+                        raw_amount = Decimal(amount) / Decimal(10**reward_token_info['decimals'])
+                        usd_value = raw_amount * reward_price
+                        if reward_token_info['symbol'] == 'xSHADOW':
+                            total_rewards_usd += (usd_value / 2)
+                        else:
+                            total_rewards_usd += usd_value
+
+                    rewards_data.append({
+                        "amount": display_amount,
+                        "symbol": reward_token_info['symbol'],
+                        "usd_value": f"{usd_value / 2 if reward_token_info['symbol'] == 'xSHADOW' else usd_value:,.2f}",
+                    })
+
+            annualized_apr = Decimal(0)
+            days_active = Decimal(0)
+            if initial_info and 'date' in initial_info and " (Current)" not in initial_info['date']:
+                try:
+                    creation_date_str = initial_info['date']
+                    creation_datetime = datetime.strptime(creation_date_str, '%a %Y-%m-%d %H:%M:%S')
+                    time_difference = datetime.now() - creation_datetime
+                    days_active = Decimal(time_difference.total_seconds()) / Decimal(86400)
+
+                    if position_usd_value > 0 and days_active > 0: # Ensure no division by zero
+                        annualized_apr = (total_rewards_usd / position_usd_value) / (days_active / Decimal(365)) * Decimal(100)
+                except Exception as e:
+                    print(f"   [ERROR] APR calculation failed for token ID {token_id}: {e}")
+                    annualized_apr = Decimal(0) # Ensure it's 0 on error
+
+            il_data = {} # Initialize empty to ensure it's always a dict
+            if initial_info and initial_price_val > 0 and position_usd_value > 0 and days_active > 0: # Proceed only if basic info is valid
+                try:
+                    initial_price = initial_price_val # Use the already converted Decimal
+
+                    il_perc_lower = calculate_il_percentage(initial_price, price_lower, price_lower, price_upper)
+                    il_perc_upper = calculate_il_percentage(initial_price, price_upper, price_lower, price_upper)
+
+                    initial_amount0_adj = Decimal(initial_info['amount0']) / Decimal(10**token0_info['decimals'])
+                    initial_amount1_adj = Decimal(initial_info['amount1']) / Decimal(10**token1_info['decimals'])
+
+                    hodl_val_at_lower = initial_amount0_adj * price_lower + initial_amount1_adj
+                    il_usd_lower = il_perc_lower * hodl_val_at_lower
+
+                    hodl_val_at_upper = initial_amount0_adj * price_upper + initial_amount1_adj
+                    il_usd_upper = il_perc_upper * hodl_val_at_upper
+
+                    # Initialize these to default values
+                    days_to_breakeven_lower = Decimal(0)
+                    days_to_breakeven_upper = Decimal(0)
+                    daily_rewards_usd = Decimal(0)
+
+                    if annualized_apr > 0: # Only calculate if APR is positive
+                        daily_rewards_usd = (position_usd_value * (annualized_apr / Decimal(100))) / Decimal(365)
+                        if daily_rewards_usd > 0: # Avoid division by zero
+                            days_to_breakeven_lower = il_usd_lower / daily_rewards_usd if il_usd_lower > 0 else Decimal(0)
+                            days_to_breakeven_upper = il_usd_upper / daily_rewards_usd if il_usd_upper > 0 else Decimal(0)
+
                     time_remaining_lower = days_to_breakeven_lower - days_active
                     fee_il_diff_lower = total_rewards_usd - il_usd_lower
 
-                time_remaining_upper = None
-                fee_il_diff_upper = None
-                if days_to_breakeven_upper is not None:
                     time_remaining_upper = days_to_breakeven_upper - days_active
                     fee_il_diff_upper = total_rewards_usd - il_usd_upper
 
-                il_perc_current = calculate_il_percentage(initial_price, current_price, price_lower, price_upper)
-                hodl_val_at_current = (initial_amount0_adj * current_price) + initial_amount1_adj
-                il_usd_current = il_perc_current * hodl_val_at_current
-                net_gain_loss = total_rewards_usd - il_usd_current
+                    il_perc_current = calculate_il_percentage(initial_price, current_price, price_lower, price_upper)
+                    hodl_val_at_current = (initial_amount0_adj * current_price) + initial_amount1_adj
+                    il_usd_current = il_perc_current * hodl_val_at_current
+                    net_gain_loss = total_rewards_usd - il_usd_current
 
-                breakeven_lower_str = "N/A"
-                if days_to_breakeven_lower is not None:
-                    total_time_str = format_timedelta(days_to_breakeven_lower)
-                    remaining_time_str = format_timedelta(time_remaining_lower)
-                    if remaining_time_str == "Met":
-                        breakeven_lower_str = f"{total_time_str} (Met)"
-                    else:
-                        breakeven_lower_str = f"{total_time_str} ({remaining_time_str} left)"
+                    breakeven_lower_str = "N/A"
+                    breakeven_upper_str = "N/A"
 
-                breakeven_upper_str = "N/A"
-                if days_to_breakeven_upper is not None:
-                    total_time_str = format_timedelta(days_to_breakeven_upper)
-                    remaining_time_str = format_timedelta(time_remaining_upper)
-                    if remaining_time_str == "Met":
-                        breakeven_upper_str = f"{total_time_str} (Met)"
-                    else:
-                        breakeven_upper_str = f"{total_time_str} ({remaining_time_str} left)"
+                    # Only format if breakeven time is meaningful (not 0 or None)
+                    if days_to_breakeven_lower > 0:
+                        total_time_str = format_timedelta(days_to_breakeven_lower)
+                        remaining_time_str = format_timedelta(time_remaining_lower)
+                        breakeven_lower_str = f"{total_time_str} ({remaining_time_str} left)" if remaining_time_str != "Met" else f"{total_time_str} (Met)"
 
-                time_remaining_perc_lower = 0
-                if days_to_breakeven_lower and days_to_breakeven_lower > 0:
-                    time_remaining_perc_lower = (time_remaining_lower / days_to_breakeven_lower) * 100 if time_remaining_lower is not None else -1
+                    if days_to_breakeven_upper > 0:
+                        total_time_str = format_timedelta(days_to_breakeven_upper)
+                        remaining_time_str = format_timedelta(time_remaining_upper)
+                        breakeven_upper_str = f"{total_time_str} ({remaining_time_str} left)" if remaining_time_str != "Met" else f"{total_time_str} (Met)"
 
-                time_remaining_perc_upper = 0
-                if days_to_breakeven_upper and days_to_breakeven_upper > 0:
-                    time_remaining_perc_upper = (time_remaining_upper / days_to_breakeven_upper) * 100 if time_remaining_upper is not None else -1
 
-                perc_to_lower = Decimal(0)
-                perc_to_lower_str = ""
-                if current_price > 0:
-                    perc_to_lower = ((current_price - price_lower) / current_price) * 100
-                    perc_to_lower_str = f"{perc_to_lower:,.2f}% down"
+                    time_remaining_perc_lower = 0
+                    if days_to_breakeven_lower > 0:
+                        time_remaining_perc_lower = (time_remaining_lower / days_to_breakeven_lower) * 100 if time_remaining_lower.is_finite() else -1
 
-                perc_to_upper = Decimal(0)
-                perc_to_upper_str = ""
-                if current_price > 0:
-                    perc_to_upper = ((price_upper - current_price) / current_price) * 100
-                    perc_to_upper_str = f"{perc_to_upper:,.2f}% up"
+                    time_remaining_perc_upper = 0
+                    if days_to_breakeven_upper > 0:
+                        time_remaining_perc_upper = (time_remaining_upper / days_to_breakeven_upper) * 100 if time_remaining_upper.is_finite() else -1
 
-                il_data = {
-                    "lower_bound": {
-                        "price": f"{price_lower:,.0f}",
-                        "il_usd": f"{il_usd_lower:,.2f}",
-                        "il_perc": f"{il_perc_lower:.2%}",
-                        "breakeven_time": breakeven_lower_str,
-                        "breakeven_time_perc": time_remaining_perc_lower,
-                        "fees_vs_il": f"{fee_il_diff_lower:,.2f}"
-                    },
-                    "upper_bound": {
-                        "price": f"{price_upper:,.0f}",
-                        "il_usd": f"{il_usd_upper:,.2f}",
-                        "il_perc": f"{il_perc_upper:.2%}",
-                        "breakeven_time": breakeven_upper_str,
-                        "breakeven_time_perc": time_remaining_perc_upper,
-                        "fees_vs_il": f"{fee_il_diff_upper:,.2f}"
-                    },
-                    "current": {
-                        "il_usd": f"{il_usd_current:,.2f}",
-                        "il_perc": f"{il_perc_current:.2%}",
-                        "net_gain_loss": f"{net_gain_loss:,.2f}"
-                    },
-                    "position_age": format_timedelta(days_active)
-                }
-            except Exception as e:
-                # Catch and log specific IL calculation errors
-                print(f"   [ERROR] Error during IL calculation for token ID {token_id}: {e}")
-                # traceback.print_exc() # Uncomment for more detailed trace in development
-                il_data = {} # Ensure il_data is empty on error
+                    perc_to_lower = Decimal(0)
+                    perc_to_lower_str = ""
+                    if current_price > 0:
+                        perc_to_lower = ((current_price - price_lower) / current_price) * 100
+                        perc_to_lower_str = f"{perc_to_lower:,.2f}% down"
 
-        price_range_percentage = 0
-        if (price_upper - price_lower) > 0:
-            price_range_percentage = (current_price - price_lower) / (price_upper - price_lower) * 100
+                    perc_to_upper = Decimal(0)
+                    perc_to_upper_str = ""
+                    if current_price > 0:
+                        perc_to_upper = ((price_upper - current_price) / current_price) * 100
+                        perc_to_upper_str = f"{perc_to_upper:,.2f}% up"
 
-        all_positions_data.append({
-            "token_id": token_id,
-            "pair": f"{token0_info['symbol']}/{token1_info['symbol']}",
-            "status": position_status,
-            "estimated_value_usd": f"{position_usd_value:,.2f}",
-            "price_range": f"{price_lower:,.0f} - {price_upper:,.0f}",
-            "price_range_lower": f"{price_lower:,.0f}",
-            "price_range_upper": f"{price_upper:,.0f}",
-            "price_range_percentage": price_range_percentage,
-            "perc_to_lower": f"{perc_to_lower:,.2f}%",
-            "perc_to_upper": f"{perc_to_upper:,.2f}%",
-            "current_price": f"{current_price:,.0f} {token1_info['symbol']}/{token0_info['symbol']}",
-            "initial_state": {
-                "date": initial_info.get('date', 'N/A'),
-                "balances": f"{format_amount(initial_info.get('amount0', 0), token0_info['decimals'])} {token0_info['symbol']} & {format_amount(initial_info.get('amount1', 0), token1_info['decimals'])} {token1_info['symbol']}",
-                "price": f"{Decimal(initial_info.get('price', '0')):,.0f} {token1_info['symbol']}/{token0_info['symbol']}", # Handle case where price might be missing or 'N/A'
-                "usd_value": f"{initial_usd_value:,.2f}"
-            },
-            "current_balances": f"{format_amount(amount0, token0_info['decimals'])} {token0_info['symbol']} & {format_amount(amount1, token1_info['decimals'])} {token1_info['symbol']}",
-            "rewards": rewards_data,
-            "total_rewards_usd": f"{total_rewards_usd:,.2f}",
-            "annualized_apr": f"{annualized_apr:,.2f}%",
-            "impermanent_loss_data": il_data
-        })
+                    il_data = {
+                        "lower_bound": {
+                            "price": f"{price_lower:,.0f}",
+                            "il_usd": f"{il_usd_lower:,.2f}",
+                            "il_perc": f"{il_perc_lower:.2%}",
+                            "breakeven_time": breakeven_lower_str,
+                            "breakeven_time_perc": time_remaining_perc_lower,
+                            "fees_vs_il": f"{fee_il_diff_lower:,.2f}"
+                        },
+                        "upper_bound": {
+                            "price": f"{price_upper:,.0f}",
+                            "il_usd": f"{il_usd_upper:,.2f}",
+                            "il_perc": f"{il_perc_upper:.2%}",
+                            "breakeven_time": breakeven_upper_str,
+                            "breakeven_time_perc": time_remaining_perc_upper,
+                            "fees_vs_il": f"{fee_il_diff_upper:,.2f}"
+                        },
+                        "current": {
+                            "il_usd": f"{il_usd_current:,.2f}",
+                            "il_perc": f"{il_perc_current:.2%}",
+                            "net_gain_loss": f"{net_gain_loss:,.2f}"
+                        },
+                        "position_age": format_timedelta(days_active)
+                    }
+                except Exception as e:
+                    print(f"   [ERROR] Error during IL calculation for token ID {token_id}: {e}")
+                    # traceback.print_exc() # Uncomment for more detailed trace in development
+                    il_data = {} # Ensure il_data is empty or default on error
 
-    if cache_updated:
-        save_cache(initial_data_cache)
+            price_range_percentage = 0
+            if (price_upper - price_lower) > 0:
+                price_range_percentage = (current_price - price_lower) / (price_upper - price_lower) * 100
 
-    return {
-        "total_portfolio_value": f"{total_portfolio_value:,.2f}",
-        "num_active_positions": len(active_positions),
-        "positions": all_positions_data
-    }
+            all_positions_data.append({
+                "token_id": token_id,
+                "pair": f"{token0_info['symbol']}/{token1_info['symbol']}",
+                "status": position_status,
+                "estimated_value_usd": f"{position_usd_value:,.2f}",
+                "price_range": f"{price_lower:,.0f} - {price_upper:,.0f}",
+                "price_range_lower": f"{price_lower:,.0f}",
+                "price_range_upper": f"{price_upper:,.0f}",
+                "price_range_percentage": price_range_percentage,
+                "perc_to_lower": f"{perc_to_lower:,.2f}%",
+                "perc_to_upper": f"{perc_to_upper:,.2f}%",
+                "current_price": f"{current_price:,.0f} {token1_info['symbol']}/{token0_info['symbol']}",
+                "initial_state": {
+                    "date": initial_info.get('date', 'N/A'),
+                    "balances": f"{format_amount(initial_info.get('amount0', 0), token0_info['decimals'])} {token0_info['symbol']} & {format_amount(initial_info.get('amount1', 0), token1_info['decimals'])} {token1_info['symbol']}",
+                    "price": f"{initial_price_val:,.0f} {token1_info['symbol']}/{token0_info['symbol']}", # Use initial_price_val here
+                    "usd_value": f"{initial_usd_value:,.2f}"
+                },
+                "current_balances": f"{format_amount(amount0, token0_info['decimals'])} {token0_info['symbol']} & {format_amount(amount1, token1_info['decimals'])} {token1_info['symbol']}",
+                "rewards": rewards_data,
+                "total_rewards_usd": f"{total_rewards_usd:,.2f}",
+                "annualized_apr": f"{annualized_apr:,.2f}%",
+                "impermanent_loss_data": il_data
+            })
+
+        if cache_updated:
+            save_cache(initial_data_cache)
+
+        return {
+            "total_portfolio_value": f"{total_portfolio_value:,.2f}",
+            "num_active_positions": len(active_positions),
+            "positions": all_positions_data
+        }
