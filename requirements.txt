@@ -1,3 +1,4 @@
 Flask
 web3
 requests
+gunicorn==22.0.0
