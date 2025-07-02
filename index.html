@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Concentrated Liquidity Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Shadow CL Position Tracker</h1>
+        <div id="wallet-input-section" class="wallet-section">
+            <p>Please enter your wallet address to track your positions:</p>
+            <input type="text" id="wallet-address-input" placeholder="Enter wallet address (e.g., 0x...)">
+            <button id="save-wallet-btn">Save Address</button>
+        </div>
+        <div id="wallet-display-section" style="display: none;">
+            <p>Tracking wallet: <span id="displayed-wallet-address"></span> <button id="remove-wallet-btn" class="remove-wallet-x">X</button></p>
+        </div>
+
+        <div id="main-content" style="display: none;">
+            <div id="loading-message">Loading on-chain data... this may take a moment.</div>
+            <div id="error-message" class="error-message"></div>
+            <div id="portfolio-summary"></div>
+            <div id="positions-container"></div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
