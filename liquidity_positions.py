@@ -28,17 +28,24 @@ import json
 from web3 import Web3
 import requests
 from decimal import Decimal, getcontext
-from datetime import datetime
+from datetime import datetime, timedelta # Import timedelta
 import traceback
+import os # Import os for environment variable
 
 # Set precision for Decimal calculations
 getcontext().prec = 50
 
 # --- CONFIGURATION ---
 # Sonic RPC endpoint
-RPC_URL = "https://rpc.soniclabs.com"
+RPC_URL = os.environ.get("RPC_URL", "https://rpc.soniclabs.com") # Get from env or fallback
 # File to cache initial position data
 CACHE_FILENAME = "position_initial_data.json"
+# Time in seconds to cache CoinGecko prices (e.g., 5 minutes = 300 seconds)
+COINGECKO_CACHE_DURATION = 300 # 5 minutes
+
+# Global in-memory cache for CoinGecko prices
+_coingecko_price_cache = {}
+_coingecko_cache_timestamp = datetime.min
 
 
 # --- CONTRACT ADDRESSES ---
@@ -172,14 +179,35 @@ def get_token_info(web3, token_address, cache):
     return info
 
 def get_coingecko_price(api_id):
-    """Fetches the current USD price for a given CoinGecko API ID."""
+    """
+    Fetches the current USD price for a given CoinGecko API ID,
+    using a global in-memory cache with expiration.
+    """
+    global _coingecko_price_cache, _coingecko_cache_timestamp
+    current_time = datetime.now()
+
+    # Check if cache is fresh
+    if current_time - _coingecko_cache_timestamp < timedelta(seconds=COINGECKO_CACHE_DURATION):
+        if api_id in _coingecko_price_cache:
+            return _coingecko_price_cache[api_id]
+    else:
+        # Cache expired, clear it
+        _coingecko_price_cache = {}
+        print(f"   CoinGecko price cache expired. Refreshing...")
+
     if not api_id: return None
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={api_id}&vs_currencies=usd"
+        print(f"   Fetching price for {api_id} from CoinGecko API...") # Log API call
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        return Decimal(data[api_id]['usd'])
+        price = Decimal(data[api_id]['usd'])
+
+        # Update cache after successful fetch
+        _coingecko_price_cache[api_id] = price
+        _coingecko_cache_timestamp = current_time # Update timestamp ONLY on a successful, fresh fetch
+        return price
     except Exception as e:
         print(f"   Warning: Could not fetch price for {api_id}: {e}")
     return None
@@ -311,7 +339,7 @@ def format_timedelta(days):
     """Formats a decimal number of days into a human-readable string."""
     if days is None or not isinstance(days, Decimal) or not days.is_finite():
         return "N/A"
-    
+
     if days < 0:
         return "Met"
 
@@ -336,12 +364,13 @@ def format_timedelta(days):
 
 # --- MAIN LOGIC ---
 
-def find_and_display_positions():
-    """The main function to find, calculate, and display position details."""
-    web3 = Web3(Web3.HTTPProvider(RPC_URL))
-    if not web3.is_connected():
-        print(f"Failed to connect to Sonic RPC at {RPC_URL}")
-        return
+# Removed the empty find_and_display_positions()
+# def find_and_display_positions():
+#     """The main function to find, calculate, and display position details."""
+#     web3 = Web3(Web3.HTTPProvider(RPC_URL))
+#     if not web3.is_connected():
+#         print(f"Failed to connect to Sonic RPC at {RPC_URL}")
+#         return
 
 def find_and_display_positions(web3_instance, wallet_address):
     """The main function to find, calculate, and display position details."""
@@ -351,13 +380,15 @@ def find_and_display_positions(web3_instance, wallet_address):
 
     initial_data_cache = load_cache()
 
-    # Pre-fetch prices for known tokens to reduce API calls
+    # Pre-fetch prices for known tokens using the new cached function
     price_cache = {}
     for token_address, token_info in KNOWN_TOKENS.items():
         if token_info['symbol'] == 'USDC':
             price_cache[token_info['symbol']] = Decimal('1.0') # Hardcode USDC price to $1
         elif token_info.get('api_id'):
-            price_cache[token_info['symbol']] = get_coingecko_price(token_info['api_id'])
+            price = get_coingecko_price(token_info['api_id']) # Use the cached CoinGecko function
+            if price:
+                price_cache[token_info['symbol']] = price
 
     nft_contract = web3.eth.contract(address=web3.to_checksum_address(NFT_MANAGER_CONTRACT), abi=NFT_MANAGER_ABI)
     try:
@@ -453,6 +484,10 @@ def find_and_display_positions(web3_instance, wallet_address):
                  position_usd_value = (Decimal(amount0) / Decimal(10**token0_info['decimals']) * price0) + (Decimal(amount1) / Decimal(10**token1_info['decimals']))
             elif token0_info['symbol'] == 'USDC' and price1:
                  position_usd_value = (Decimal(amount1) / Decimal(10**token1_info['decimals']) * price1) + (Decimal(amount0) / Decimal(10**token0_info['decimals']))
+            # Fallback if neither token's price is available
+            else:
+                position_usd_value = Decimal(0)
+
 
         total_portfolio_value += position_usd_value
 
@@ -619,7 +654,10 @@ def find_and_display_positions(web3_instance, wallet_address):
                     "position_age": format_timedelta(days_active)
                 }
             except Exception as e:
-                pass
+                # Catch and log specific IL calculation errors
+                print(f"   [ERROR] Error during IL calculation for token ID {token_id}: {e}")
+                # traceback.print_exc() # Uncomment for more detailed trace in development
+                il_data = {} # Ensure il_data is empty on error
 
         price_range_percentage = 0
         if (price_upper - price_lower) > 0:
@@ -640,7 +678,7 @@ def find_and_display_positions(web3_instance, wallet_address):
             "initial_state": {
                 "date": initial_info.get('date', 'N/A'),
                 "balances": f"{format_amount(initial_info.get('amount0', 0), token0_info['decimals'])} {token0_info['symbol']} & {format_amount(initial_info.get('amount1', 0), token1_info['decimals'])} {token1_info['symbol']}",
-                "price": f"{Decimal(initial_info.get('price', 0)):,.0f} {token1_info['symbol']}/{token0_info['symbol']}",
+                "price": f"{Decimal(initial_info.get('price', '0')):,.0f} {token1_info['symbol']}/{token0_info['symbol']}", # Handle case where price might be missing or 'N/A'
                 "usd_value": f"{initial_usd_value:,.2f}"
             },
             "current_balances": f"{format_amount(amount0, token0_info['decimals'])} {token0_info['symbol']} & {format_amount(amount1, token1_info['decimals'])} {token1_info['symbol']}",
