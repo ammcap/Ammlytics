@@ -99,15 +99,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p class="label"><strong>Current IL:</strong> <span class="value value-negative">${ilData.current.il_usd} (${ilData.current.il_perc})</span></p>
                         <p class="label"><strong>Net Gain/Loss:</strong> <span class="value ${netGainLossClass}">${ilData.current.net_gain_loss}</span></p>
                         <hr style="border-color: var(--color-bg-tertiary); margin: 12px 0;">
-                        <p class="label"><strong>At Lower Bound (${ilData.lower_bound.price}):</strong></p>
-                        <p>IL: <span class="value value-negative">${ilData.lower_bound.il_usd} (${ilData.lower_bound.il_perc})</span></p>
-                        <p>Break Even Time: <span class="value ${getBreakevenColorClass(ilData.lower_bound.breakeven_time_perc)}">${ilData.lower_bound.breakeven_time}</span></p>
-                        <p>Fees vs IL: <span class="value">${ilData.lower_bound.fees_vs_il}</span></p>
-                        <hr style="border-color: var(--color-bg-tertiary); margin: 12px 0;">
                         <p class="label"><strong>At Upper Bound (${ilData.upper_bound.price}):</strong></p>
                         <p>IL: <span class="value value-negative">${ilData.upper_bound.il_usd} (${ilData.upper_bound.il_perc})</span></p>
                         <p>Break Even Time: <span class="value ${getBreakevenColorClass(ilData.upper_bound.breakeven_time_perc)}">${ilData.upper_bound.breakeven_time}</span></p>
                          <p>Fees vs IL: <span class="value">${ilData.upper_bound.fees_vs_il}</span></p>
+                        <hr style="border-color: var(--color-bg-tertiary); margin: 12px 0;">
+                        <p class="label"><strong>At Lower Bound (${ilData.lower_bound.price}):</strong></p>
+                        <p>IL: <span class="value value-negative">${ilData.lower_bound.il_usd} (${ilData.lower_bound.il_perc})</span></p>
+                        <p>Break Even Time: <span class="value ${getBreakevenColorClass(ilData.lower_bound.breakeven_time_perc)}">${ilData.lower_bound.breakeven_time}</span></p>
+                        <p>Fees vs IL: <span class="value">${ilData.lower_bound.fees_vs_il}</span></p>
                     </div>
                 `;
             } else {
