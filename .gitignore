@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+venv/
+.flaskenv
+*.sqlite3
+*.log
+position_initial_data.json # Exclude this from Git as it's a local cache
