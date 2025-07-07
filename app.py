@@ -10,7 +10,7 @@ from liquidity_positions import (
     KNOWN_POOLS, KNOWN_TOKENS, NFT_MANAGER_ABI, POOL_ABI,
     VOTER_ABI, GAUGE_V3_ABI, ERC20_ABI, CACHE_FILENAME,
     load_cache, save_cache, get_position_creation_info,
-    format_amount, get_token_info, get_coingecko_price,
+    format_amount, get_token_info,
     tick_to_price, calculate_token_amounts, get_pool_info,
     get_emissions_rewards, calculate_il_percentage, format_timedelta
 )
@@ -46,7 +46,7 @@ def get_data():
         if not web3_instance.is_connected():
             return jsonify({"error": f"Failed to connect to Sonic RPC at {RPC_URL}"}), 500
 
-        data = find_and_display_positions(web3_instance, wallet_address)
+        data = find_and_display_positions(wallet_address)
         return jsonify(data), 200, {'Content-Type': 'application/json'}
     except Exception as e:
         return jsonify({"error": f"An unexpected error occurred: {e}"}), 500

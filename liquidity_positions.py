@@ -14,6 +14,7 @@ This updated version includes:
   current APR) to offset the projected impermanent loss.
 - Breakeven Analysis: Shows time elapsed, time remaining to breakeven, and
   the dollar difference between accrued fees and projected IL.
+- Hybrid V2/V3 pool price fetching for Shadow DEX
 
 Features:
 - All active positions for a given wallet.
@@ -40,35 +41,64 @@ getcontext().prec = 50
 RPC_URL = os.environ.get("RPC_URL", "https://rpc.soniclabs.com") # Get from env or fallback
 # File to cache initial position data
 CACHE_FILENAME = "position_initial_data.json"
-# Time in seconds to cache CoinGecko prices (e.g., 5 minutes = 300 seconds)
-COINGECKO_CACHE_DURATION = 300 # 5 minutes
+# Time in seconds to cache prices (e.g., 5 minutes = 300 seconds)
+PRICE_CACHE_DURATION = 60 # 1 minute TTL for pool prices
 
-# Global in-memory cache for CoinGecko prices
-_coingecko_price_cache = {}
-_coingecko_cache_timestamp = datetime.min
+# Global in-memory cache for prices
+_price_cache = {}
+_price_cache_timestamp = datetime.min
 
+
+# --- WEB3 SETUP ---
+web3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 # --- CONTRACT ADDRESSES ---
 NFT_MANAGER_CONTRACT = "0x12E66C8F215DdD5d48d150c8f46aD0c6fB0F4406"
 VOTER_CONTRACT = "0x9f59398d0a397b2eeb8a6123a6c7295cb0b0062d"
 
+# --- SHADOW DEX POOL ADDRESSES ---
+SHADOW_USDC_POOL = "0xAca297ecC8cbAF15Bd78Cd0757Ee93D6ef82c6b7"  # V2 style pool
+WBTC_USDC_POOL = "0x8BC2f9e725cbB07c338df4e77c82190119ddd823"     # V3 style pool
+
 # --- KNOWN ADDRESSES FOR EFFICIENCY ---
 # Known pool addresses to avoid extra lookups
 KNOWN_POOLS = {
-    ('0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', '0x29219dd400f2Bf60E5a23d13Be72B486D4038894'): '0x8BC2f9e725cbB07c338df4e77c82190119ddd823'
+    ('0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', '0x29219dd400f2Bf60E5a23d13Be72B486D4038894'): WBTC_USDC_POOL, # WBTC/USDC
+    ('0x3333b97138D4b086720b5aE8A7844b1345a33333', '0x29219dd400f2Bf60E5a23d13Be72B486D4038894'): SHADOW_USDC_POOL # SHADOW/USDC
 }
 
 # Known token information to reduce RPC calls
 KNOWN_TOKENS = {
-    '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c': {'symbol': 'WBTC', 'decimals': 8, 'api_id': 'wrapped-bitcoin'},
-    '0x29219dd400f2Bf60E5a23d13Be72B486D4038894': {'symbol': 'USDC', 'decimals': 6, 'api_id': 'usd-coin'},
-    '0x3333b97138D4b086720b5aE8A7844b1345a33333': {'symbol': 'SHADOW', 'decimals': 18, 'api_id': 'shadow-2'},
-    '0x5050bc082FF4A74Fb6B0B04385dEfdDB114b2424': {'symbol': 'xSHADOW', 'decimals': 18, 'api_id': 'shadow-2'}, # xSHADOW price is tracked via SHADOW
+    '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c': {'symbol': 'WBTC', 'decimals': 8},
+    '0x29219dd400f2Bf60E5a23d13Be72B486D4038894': {'symbol': 'USDC', 'decimals': 6},
+    '0x3333b97138D4b086720b5aE8A7844b1345a33333': {'symbol': 'SHADOW', 'decimals': 18},
+    '0x5050bc082FF4A74Fb6B0B04385dEfdDB114b2424': {'symbol': 'xSHADOW', 'decimals': 18}, # xSHADOW price is tracked via SHADOW
 }
 
-# --- ABIs (Omitted for brevity, same as your original script) ---
+# --- ABIs ---
 NFT_MANAGER_ABI = [{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"uint256","name":"index","type":"uint256"}],"name":"tokenOfOwnerByIndex","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"positions","outputs":[{"internalType":"address","name":"token0","type":"address"},{"internalType":"address","name":"token1","type":"address"},{"internalType":"int24","name":"tickSpacing","type":"int24"},{"internalType":"int24","name":"tickLower","type":"int24"},{"internalType":"int24","name":"tickUpper","type":"int24"},{"internalType":"uint128","name":"liquidity","type":"uint128"},{"internalType":"uint256","name":"feeGrowthInside0LastX128","type":"uint256"},{"internalType":"uint256","name":"feeGrowthInside1LastX128","type":"uint256"},{"internalType":"uint128","name":"tokensOwed0","type":"uint128"},{"internalType":"uint128","name":"tokensOwed1","type":"uint128"}],"stateMutability":"view","type":"function"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"from","type":"address"},{"indexed":True,"internalType":"address","name":"to","type":"address"},{"indexed":True,"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"Transfer","type":"event"}]
-POOL_ABI = [{"inputs":[],"name":"slot0","outputs":[{"internalType":"uint160","name":"sqrtPriceX96","type":"uint160"},{"internalType":"int24","name":"tick","type":"int24"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"fee","outputs":[{"internalType":"uint24","name":"","type":"uint24"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"feeGrowthGlobal0X128","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"feeGrowthGlobal1X128","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"int24","name":"tick","type":"int24"}],"name":"ticks","outputs":[{"internalType":"uint256","name":"feeGrowthOutside0X128","type":"uint256"},{"internalType":"uint256","name":"feeGrowthOutside1X128","type":"uint256"}],"stateMutability":"view","type":"function"}]
+
+# V3 Pool ABI (for concentrated liquidity pools like WBTC/USDC)
+POOL_V3_ABI = [
+    {"inputs":[],"name":"slot0","outputs":[{"internalType":"uint160","name":"sqrtPriceX96","type":"uint160"},{"internalType":"int24","name":"tick","type":"int24"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"token0","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"token1","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"fee","outputs":[{"internalType":"uint24","name":"","type":"uint24"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"feeGrowthGlobal0X128","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"feeGrowthGlobal1X128","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"int24","name":"tick","type":"int24"}],"name":"ticks","outputs":[{"internalType":"uint256","name":"feeGrowthOutside0X128","type":"uint256"},{"internalType":"uint256","name":"feeGrowthOutside1X128","type":"uint256"}],"stateMutability":"view","type":"function"}
+]
+
+# V2 Pool ABI (for standard AMM pools like SHADOW/USDC)
+POOL_V2_ABI = [
+    {"inputs":[],"name":"getReserves","outputs":[{"type":"uint112","name":"reserve0"},{"type":"uint112","name":"reserve1"},{"type":"uint32","name":"blockTimestampLast"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"token0","outputs":[{"type":"address","name":""}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"token1","outputs":[{"type":"address","name":""}],"stateMutability":"view","type":"function"}
+]
+
+# Use V3 ABI for the main POOL_ABI (for concentrated liquidity positions)
+POOL_ABI = POOL_V3_ABI
+
 VOTER_ABI = [{"inputs":[{"internalType":"address","name":"pool","type":"address"}],"name":"gaugeForPool","outputs":[{"internalType":"address","name":"gauge","type":"address"}],"stateMutability":"view","type":"function"}]
 GAUGE_V3_ABI = [{"inputs":[],"name":"getRewardTokens","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"earned","outputs":[{"internalType":"uint256","name":"reward","type":"uint256"}],"stateMutability":"view","type":"function"}]
 ERC20_ABI = [{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"}]
@@ -161,7 +191,15 @@ def format_amount(amount, decimals):
     if adjusted < 1: return f"{adjusted:.4f}"
     return f"{adjusted:,.2f}"
 
-def get_token_info(web3, token_address, cache):
+def calculate_price_from_sqrt_price_x96(sqrt_price_x96, token0_decimals, token1_decimals):
+    """Convert sqrtPriceX96 to actual token price"""
+    Q96 = Decimal(2**96)
+    price_ratio = (Decimal(sqrt_price_x96) / Q96) ** 2
+    decimal_adjustment = (Decimal(10) ** token0_decimals) / (Decimal(10) ** token1_decimals)
+    adjusted_price = price_ratio * decimal_adjustment
+    return adjusted_price
+
+def get_token_info(token_address, cache):
     """Gets token symbol and decimals, using a cache to avoid redundant calls."""
     checksum_address = web3.to_checksum_address(token_address)
     if checksum_address in cache: return cache[checksum_address]
@@ -174,43 +212,141 @@ def get_token_info(web3, token_address, cache):
     except Exception: symbol = f"Unknown ({checksum_address[:6]}...)"
     try: decimals = token_contract.functions.decimals().call()
     except Exception: decimals = 18
-    info = {'symbol': symbol, 'decimals': decimals, 'api_id': None}
+    info = {'symbol': symbol, 'decimals': decimals}
     cache[checksum_address] = info
     return info
 
-def get_coingecko_price(api_id):
+def get_v3_pool_price(pool_address):
+    """Get price from V3-style concentrated liquidity pool"""
+    try:
+        pool_contract = web3.eth.contract(address=web3.to_checksum_address(pool_address), abi=POOL_V3_ABI)
+        slot0 = pool_contract.functions.slot0().call()
+        sqrt_price_x96 = slot0[0]
+
+        token0_address = pool_contract.functions.token0().call()
+        token1_address = pool_contract.functions.token1().call()
+
+        token_info_cache = {}
+        token0_info = get_token_info(token0_address, token_info_cache)
+        token1_info = get_token_info(token1_address, token_info_cache)
+
+        price = calculate_price_from_sqrt_price_x96(sqrt_price_x96, token0_info['decimals'], token1_info['decimals'])
+
+        # Determine USD price based on which token is USDC
+        if token1_info['symbol'] in ['USDC', 'USDC.e']:
+            return price  # Price is token0 per USDC
+        elif token0_info['symbol'] in ['USDC', 'USDC.e']:
+            return Decimal(1) / price  # Price is token1 per USDC
+        else:
+            print(f"   Warning: Neither token in V3 pool {pool_address} is USDC. Cannot determine USD price.")
+            return None
+            
+    except Exception as e:
+        # Not a V3 pool, return None to try V2
+        return None
+
+def get_v2_pool_price(pool_address):
+    """Get price from V2-style pool using reserves"""
+    try:
+        pool_contract = web3.eth.contract(address=web3.to_checksum_address(pool_address), abi=POOL_V2_ABI)
+        
+        reserves = pool_contract.functions.getReserves().call()
+        token0_address = pool_contract.functions.token0().call()
+        token1_address = pool_contract.functions.token1().call()
+        
+        token_info_cache = {}
+        token0_info = get_token_info(token0_address, token_info_cache)
+        token1_info = get_token_info(token1_address, token_info_cache)
+        
+        reserve0 = Decimal(reserves[0])
+        reserve1 = Decimal(reserves[1])
+        
+        # Adjust for decimals
+        reserve0_adjusted = reserve0 / Decimal(10**token0_info['decimals'])
+        reserve1_adjusted = reserve1 / Decimal(10**token1_info['decimals'])
+        
+        # Price = reserve1/reserve0 (token1 per token0)
+        if reserve0_adjusted > 0:
+            price = reserve1_adjusted / reserve0_adjusted
+            
+            # Determine USD price based on which token is USDC
+            if token1_info['symbol'] in ['USDC', 'USDC.e']:
+                return price  # token0 price in USD
+            elif token0_info['symbol'] in ['USDC', 'USDC.e']:
+                return Decimal(1) / price  # token1 price in USD
+            else:
+                print(f"   Warning: Neither token in V2 pool {pool_address} is USDC. Cannot determine USD price.")
+                return None
+                
+        return None
+        
+    except Exception as e:
+        # Not a V2 pool either
+        return None
+
+def get_pool_price(pool_address):
     """
-    Fetches the current USD price for a given CoinGecko API ID,
-    using a global in-memory cache with expiration.
+    Fetches the current USD price for a given Shadow DEX pool.
+    Automatically detects V2 vs V3 style and uses appropriate method.
     """
-    global _coingecko_price_cache, _coingecko_cache_timestamp
+    global _price_cache, _price_cache_timestamp
     current_time = datetime.now()
 
-    # Check if cache is fresh
-    if current_time - _coingecko_cache_timestamp < timedelta(seconds=COINGECKO_CACHE_DURATION):
-        if api_id in _coingecko_price_cache:
-            return _coingecko_price_cache[api_id]
+    # Check cache first
+    if current_time - _price_cache_timestamp < timedelta(seconds=PRICE_CACHE_DURATION):
+        if pool_address in _price_cache:
+            return _price_cache[pool_address]
     else:
-        # Cache expired, clear it
-        _coingecko_price_cache = {}
-        print(f"   CoinGecko price cache expired. Refreshing...")
+        _price_cache = {}
+        print(f"   Price cache expired. Refreshing...")
 
-    if not api_id: return None
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={api_id}&vs_currencies=usd"
-        print(f"   Fetching price for {api_id} from CoinGecko API...") # Log API call
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        price = Decimal(data[api_id]['usd'])
-
-        # Update cache after successful fetch
-        _coingecko_price_cache[api_id] = price
-        _coingecko_cache_timestamp = current_time # Update timestamp ONLY on a successful, fresh fetch
-        return price
+        # First try V3-style (concentrated liquidity)
+        v3_price = get_v3_pool_price(pool_address)
+        if v3_price is not None:
+            _price_cache[pool_address] = v3_price
+            _price_cache_timestamp = current_time
+            print(f"   Successfully fetched V3 price for {pool_address}: ${v3_price:,.2f}")
+            return v3_price
+            
+        # If V3 fails, try V2-style (reserves)
+        v2_price = get_v2_pool_price(pool_address)
+        if v2_price is not None:
+            _price_cache[pool_address] = v2_price
+            _price_cache_timestamp = current_time
+            print(f"   Successfully fetched V2 price for {pool_address}: ${v2_price:,.2f}")
+            return v2_price
+            
+        print(f"   Warning: Could not determine pool type for {pool_address}")
+        return None
+        
     except Exception as e:
-        print(f"   Warning: Could not fetch price for {api_id}: {e}")
-    return None
+        print(f"   Warning: Could not fetch price for pool {pool_address}: {e}")
+        return None
+
+def get_coingecko_price(api_id):
+    """
+    This function is now a placeholder. Prices are fetched from Shadow DEX pools.
+    It will return prices for WBTC and SHADOW from their respective pools.
+    For other tokens, it will attempt to fetch from CoinGecko (if api_id is provided).
+    """
+    if api_id == 'wrapped-bitcoin':
+        return get_pool_price(WBTC_USDC_POOL)
+    elif api_id == 'shadow-2':
+        return get_pool_price(SHADOW_USDC_POOL)
+    else:
+        # Fallback for other tokens not on Shadow DEX, if needed
+        print(f"   Attempting to fetch price for {api_id} from CoinGecko (fallback)...")
+        try:
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={api_id}&vs_currencies=usd"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            price = Decimal(data[api_id]['usd'])
+            return price
+        except Exception as e:
+            print(f"   Warning: Could not fetch price for {api_id} from CoinGecko: {e}")
+            return None
 
 def tick_to_price(tick, decimals0, decimals1):
     """Converts a tick to a human-readable price."""
@@ -363,9 +499,8 @@ def format_timedelta(days):
 
 
 # --- MAIN LOGIC ---
-def find_and_display_positions(web3_instance, wallet_address):
+def find_and_display_positions(wallet_address):
         """The main function to find, calculate, and display position details."""
-        web3 = web3_instance
         if not web3.is_connected():
             return {"error": f"Failed to connect to Sonic RPC at {RPC_URL}"}
 
@@ -376,8 +511,12 @@ def find_and_display_positions(web3_instance, wallet_address):
         for token_address, token_info in KNOWN_TOKENS.items():
             if token_info['symbol'] == 'USDC':
                 price_cache[token_info['symbol']] = Decimal('1.0') # Hardcode USDC price to $1
-            elif token_info.get('api_id'):
-                price = get_coingecko_price(token_info['api_id']) # Use the cached CoinGecko function
+            elif token_info['symbol'] == 'WBTC':
+                price = get_pool_price(WBTC_USDC_POOL)
+                if price:
+                    price_cache[token_info['symbol']] = price
+            elif token_info['symbol'] == 'SHADOW' or token_info['symbol'] == 'xSHADOW':
+                price = get_pool_price(SHADOW_USDC_POOL)
                 if price:
                     price_cache[token_info['symbol']] = price
 
@@ -424,8 +563,8 @@ def find_and_display_positions(web3_instance, wallet_address):
             token_id_str = str(token_id)
 
             token0_addr, token1_addr, _, tickLower, tickUpper, liquidity, *_ = pos
-            token0_info = get_token_info(web3, token0_addr, token_info_cache)
-            token1_info = get_token_info(web3, token1_addr, token_info_cache)
+            token0_info = get_token_info(token0_addr, token_info_cache)
+            token1_info = get_token_info(token1_addr, token_info_cache)
 
             current_pool_info = get_pool_info(web3, token0_addr, token1_addr)
             if not current_pool_info:
@@ -517,7 +656,7 @@ def find_and_display_positions(web3_instance, wallet_address):
             total_rewards_usd = Decimal(0)
             if emissions:
                 for token_addr, amount in emissions.items():
-                    reward_token_info = get_token_info(web3, token_addr, token_info_cache)
+                    reward_token_info = get_token_info(token_addr, token_info_cache)
                     display_amount = format_amount(amount, reward_token_info['decimals'])
                     usd_value = Decimal(0)
                     reward_price = price_cache.get(reward_token_info['symbol'])
