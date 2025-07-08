@@ -472,30 +472,51 @@ def calculate_il_percentage(entry_price, target_price, lower_price, upper_price)
     return abs(il)
 
 def format_timedelta(days):
-    """Formats a decimal number of days into a human-readable string."""
+    """Formats a decimal number of days into a human-readable string (up to 3 levels of units, no seconds)."""
     if days is None or not isinstance(days, Decimal) or not days.is_finite():
         return "N/A"
 
     if days < 0:
         return "Met"
 
-    total_seconds = int(days * 86400)
-    if total_seconds < 60:
+    total_minutes = int(days * 24 * 60)
+
+    if total_minutes == 0:
         return "<1m"
 
-    days_part = total_seconds // 86400
-    hours_part = (total_seconds % 86400) // 3600
-    minutes_part = (total_seconds % 3600) // 60
-
     parts = []
-    if days_part > 0:
-        parts.append(f"{days_part}d")
-    if hours_part > 0:
-        parts.append(f"{hours_part}h")
-    if minutes_part > 0 and days_part == 0:  # Only show minutes if total is less than a day
-        parts.append(f"{minutes_part}m")
 
-    return " ".join(parts) if parts else "N/A"
+    # Calculate all components from total_minutes
+    years = total_minutes // (365 * 24 * 60)
+    total_minutes %= (365 * 24 * 60)
+
+    months = total_minutes // (30 * 24 * 60) # Approximate month
+    total_minutes %= (30 * 24 * 60)
+
+    weeks = total_minutes // (7 * 24 * 60)
+    total_minutes %= (7 * 24 * 60)
+
+    days_part = total_minutes // (24 * 60)
+    total_minutes %= (24 * 60)
+
+    hours_part = total_minutes // 60
+    minutes_part = total_minutes % 60
+
+    time_components_ordered = []
+    if years > 0: time_components_ordered.append((years, 'y'))
+    if months > 0: time_components_ordered.append((months, 'mo'))
+    if weeks > 0: time_components_ordered.append((weeks, 'w'))
+    if days_part > 0: time_components_ordered.append((days_part, 'd'))
+    if hours_part > 0: time_components_ordered.append((hours_part, 'h'))
+    if minutes_part > 0: time_components_ordered.append((minutes_part, 'm'))
+
+    display_parts = []
+    for value, unit in time_components_ordered:
+        display_parts.append(f"{value}{unit}")
+        if len(display_parts) == 3:
+            break
+
+    return " ".join(display_parts) if display_parts else "N/A"
 
 
 # --- MAIN LOGIC ---
