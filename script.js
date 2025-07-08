@@ -66,7 +66,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        portfolioSummaryDiv.innerHTML = `Total Estimated Portfolio Value: ${data.total_portfolio_value} | Found ${data.num_active_positions} active positions.`;
+        portfolioSummaryDiv.innerHTML = `
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Total Estimated Portfolio Value:</span>
+                <span style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">$${data.total_portfolio_value}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Active Positions:</span>
+                <span style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">${data.num_active_positions}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Daily Projected Earnings:</span>
+                <span style="font-weight: 600; color: var(--color-positive); font-size: 1em;">$${data.total_daily_projected_usd_earnings}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Annual Projected Earnings:</span>
+                <span style="font-weight: 600; color: var(--color-positive); font-size: 1em;">$${data.total_annual_projected_usd_earnings}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Total Annual Yield:</span>
+                <span style="font-weight: 600; color: var(--color-positive); font-size: 1em;">${data.total_annual_yield}</span>
+            </div>
+        `;
         positionsContainer.innerHTML = ''; // Clear previous content
 
         data.positions.forEach(position => {
@@ -183,6 +204,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="metric">
                             <span class="metric-label">Annualized APR</span>
                             <span class="metric-value value-positive">${position.annualized_apr}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Daily Projected Earnings</span>
+                            <span class="metric-value value-positive">$${position.daily_projected_usd_earnings}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Annual Projected Earnings</span>
+                            <span class="metric-value value-positive">$${position.annual_projected_usd_earnings}</span>
                         </div>
                     </div>
                     <div class="card-section">

@@ -676,6 +676,9 @@ def find_and_display_positions(wallet_address):
 
             annualized_apr = Decimal(0)
             days_active = Decimal(0)
+            daily_projected_usd_earnings = Decimal(0)
+            annual_projected_usd_earnings = Decimal(0)
+
             if initial_info and 'date' in initial_info and " (Current)" not in initial_info['date']:
                 try:
                     creation_date_str = initial_info['date']
@@ -685,6 +688,8 @@ def find_and_display_positions(wallet_address):
 
                     if position_usd_value > 0 and days_active > 0: # Ensure no division by zero
                         annualized_apr = (total_rewards_usd / position_usd_value) / (days_active / Decimal(365)) * Decimal(100)
+                        annual_projected_usd_earnings = position_usd_value * (annualized_apr / Decimal(100))
+                        daily_projected_usd_earnings = annual_projected_usd_earnings / Decimal(365)
                 except Exception as e:
                     print(f"   [ERROR] APR calculation failed for token ID {token_id}: {e}")
                     annualized_apr = Decimal(0) # Ensure it's 0 on error
@@ -818,14 +823,29 @@ def find_and_display_positions(wallet_address):
                 "rewards": rewards_data,
                 "total_rewards_usd": f"{total_rewards_usd:,.2f}",
                 "annualized_apr": f"{annualized_apr:,.2f}%",
+                "daily_projected_usd_earnings": f"{daily_projected_usd_earnings:,.2f}",
+                "annual_projected_usd_earnings": f"{annual_projected_usd_earnings:,.2f}",
                 "impermanent_loss_data": il_data
             })
 
         if cache_updated:
             save_cache(initial_data_cache)
 
+        total_daily_projected_usd_earnings = Decimal(0)
+        total_annual_projected_usd_earnings = Decimal(0)
+        for pos_data in all_positions_data:
+            total_daily_projected_usd_earnings += Decimal(pos_data["daily_projected_usd_earnings"].replace(",", ""))
+            total_annual_projected_usd_earnings += Decimal(pos_data["annual_projected_usd_earnings"].replace(",", ""))
+
+        total_annual_yield = Decimal(0)
+        if total_portfolio_value > 0:
+            total_annual_yield = (total_annual_projected_usd_earnings / total_portfolio_value) * Decimal(100)
+
         return {
             "total_portfolio_value": f"{total_portfolio_value:,.2f}",
             "num_active_positions": len(active_positions),
+            "total_daily_projected_usd_earnings": f"{total_daily_projected_usd_earnings:,.2f}",
+            "total_annual_projected_usd_earnings": f"{total_annual_projected_usd_earnings:,.2f}",
+            "total_annual_yield": f"{total_annual_yield:,.2f}%",
             "positions": all_positions_data
         }
