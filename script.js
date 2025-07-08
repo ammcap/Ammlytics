@@ -68,24 +68,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         portfolioSummaryDiv.innerHTML = `
             <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
-                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Total Estimated Portfolio Value:</span>
-                <span style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">$${data.total_portfolio_value}</span>
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Portfolio Value:</span>
+                <span style="font-weight: 700; color: var(--color-text-primary); font-size: 1.1em;">${data.total_portfolio_value}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
                 <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Active Positions:</span>
-                <span style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">${data.num_active_positions}</span>
+                <span style="font-weight: 700; color: var(--color-text-primary); font-size: 1.1em;">${data.num_active_positions}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
-                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Daily Projected Earnings:</span>
-                <span style="font-weight: 600; color: var(--color-positive); font-size: 1em;">$${data.total_daily_projected_usd_earnings}</span>
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Daily Earnings:</span>
+                <span style="font-weight: 700; color: var(--color-positive); font-size: 1.1em;">$${data.total_daily_projected_usd_earnings}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
-                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Annual Projected Earnings:</span>
-                <span style="font-weight: 600; color: var(--color-positive); font-size: 1em;">$${data.total_annual_projected_usd_earnings}</span>
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Annual Earnings:</span>
+                <span style="font-weight: 700; color: var(--color-positive); font-size: 1.1em;">$${data.total_annual_projected_usd_earnings}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 4px 0; margin-bottom: 2px;">
-                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Total Annual Yield:</span>
-                <span style="font-weight: 600; color: var(--color-positive); font-size: 1em;">${data.total_annual_yield}</span>
+                <span style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Total Yield:</span>
+                <span style="font-weight: 700; color: var(--color-positive); font-size: 1.1em;">${data.total_annual_yield}</span>
             </div>
         `;
         positionsContainer.innerHTML = ''; // Clear previous content
@@ -115,20 +115,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 ilHtml = `
                     <div class="il-analysis">
-                        <p class="label">Position Age: <span class="value">${ilData.position_age}</span></p>
-                        <hr style="border-color: var(--color-bg-tertiary); margin: 12px 0;">
-                        <p class="label"><strong>Current IL:</strong> <span class="value value-negative">${ilData.current.il_usd} (${ilData.current.il_perc})</span></p>
-                        <p class="label"><strong>Net Gain/Loss:</strong> <span class="value ${netGainLossClass}">${ilData.current.net_gain_loss}</span></p>
-                        <hr style="border-color: var(--color-bg-tertiary); margin: 12px 0;">
-                        <p class="label"><strong>At Upper Bound (${ilData.upper_bound.price}):</strong></p>
-                        <p>IL: <span class="value value-negative">${ilData.upper_bound.il_usd} (${ilData.upper_bound.il_perc})</span></p>
-                        <p>Break Even Time: <span class="value ${getBreakevenColorClass(ilData.upper_bound.breakeven_time_perc)}">${ilData.upper_bound.breakeven_time}</span></p>
-                         <p>Fees vs IL: <span class="value">${ilData.upper_bound.fees_vs_il}</span></p>
-                        <hr style="border-color: var(--color-bg-tertiary); margin: 12px 0;">
-                        <p class="label"><strong>At Lower Bound (${ilData.lower_bound.price}):</strong></p>
-                        <p>IL: <span class="value value-negative">${ilData.lower_bound.il_usd} (${ilData.lower_bound.il_perc})</span></p>
-                        <p>Break Even Time: <span class="value ${getBreakevenColorClass(ilData.lower_bound.breakeven_time_perc)}">${ilData.lower_bound.breakeven_time}</span></p>
-                        <p>Fees vs IL: <span class="value">${ilData.lower_bound.fees_vs_il}</span></p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.8em;">Position Age: <span style="font-weight: 600; color: var(--color-text-primary); font-size: 0.9em;">${ilData.position_age}</span></p>
+                        <hr style="border-color: var(--color-bg-tertiary); margin: 8px 0;">
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Current IL: <span class="value value-negative" style="font-weight: 700; font-size: 1.1em;">${ilData.current.il_usd} (${ilData.current.il_perc})</span></p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Net G/L: <span class="value ${netGainLossClass}" style="font-weight: 700; font-size: 1.1em;">$${ilData.current.net_gain_loss}</span></p>
+                        <hr style="border-color: var(--color-bg-tertiary); margin: 8px 0;">
+                        <p style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">Upper Bound (${ilData.upper_bound.price}):</p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">IL: <span class="value value-negative" style="font-weight: 700; font-size: 1.1em;">${ilData.upper_bound.il_usd} (${ilData.upper_bound.il_perc})</span></p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Breakeven: <span class="value ${getBreakevenColorClass(ilData.upper_bound.breakeven_time_perc)}" style="font-weight: 700; font-size: 1.1em;">${ilData.upper_bound.breakeven_time}</span></p>
+                         <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Fees vs IL: <span class="value" style="font-weight: 700; font-size: 1.1em;">${ilData.upper_bound.fees_vs_il}</span></p>
+                        <hr style="border-color: var(--color-bg-tertiary); margin: 8px 0;">
+                        <p style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">Lower Bound (${ilData.lower_bound.price}):</p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">IL: <span class="value value-negative" style="font-weight: 700; font-size: 1.1em;">${ilData.lower_bound.il_usd} (${ilData.lower_bound.il_perc})</span></p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Breakeven: <span class="value ${getBreakevenColorClass(ilData.lower_bound.breakeven_time_perc)}" style="font-weight: 700; font-size: 1.1em;">${ilData.lower_bound.breakeven_time}</span></p>
+                        <p style="font-weight: 500; color: var(--color-text-secondary); font-size: 0.9em;">Fees vs IL: <span class="value" style="font-weight: 700; font-size: 1.1em;">${ilData.lower_bound.fees_vs_il}</span></p>
                     </div>
                 `;
             } else {
@@ -195,23 +195,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="card-section">
                         <h3 class="section-title">Performance</h3>
                         <div class="metric">
-                            <span class="metric-label">Total Rewards</span>
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Rewards</span>
                             <div class="metric-value-container">
-                                <span class="metric-value value-positive">${position.total_rewards_usd}</span>
+                                <span class="metric-value value-positive" style="font-weight: 700; font-size: 1.1em;">$${position.total_rewards_usd}</span>
                                 <span class="reward-sub-line">${xshadowRewardAmount}</span>
                             </div>
                         </div>
                         <div class="metric">
-                            <span class="metric-label">Annualized APR</span>
-                            <span class="metric-value value-positive">${position.annualized_apr}</span>
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">APR</span>
+                            <span class="metric-value value-positive" style="font-weight: 700; font-size: 1.1em;">${position.annualized_apr}</span>
                         </div>
                         <div class="metric">
-                            <span class="metric-label">Daily Projected Earnings</span>
-                            <span class="metric-value value-positive">$${position.daily_projected_usd_earnings}</span>
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Daily Earnings</span>
+                            <span class="metric-value value-positive" style="font-weight: 700; font-size: 1.1em;">$${position.daily_projected_usd_earnings}</span>
                         </div>
                         <div class="metric">
-                            <span class="metric-label">Annual Projected Earnings</span>
-                            <span class="metric-value value-positive">$${position.annual_projected_usd_earnings}</span>
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Annual Earnings</span>
+                            <span class="metric-value value-positive" style="font-weight: 700; font-size: 1.1em;">$${position.annual_projected_usd_earnings}</span>
                         </div>
                     </div>
                     <div class="card-section">
@@ -233,12 +233,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <span class="metric-value-details">${position.initial_state.usd_value}</span>
                         </div>
                         <div class="metric">
-                            <span class="metric-label">Current Balances</span>
-                            <span class="metric-value-details">${position.current_balances}</span>
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Current Balances</span>
+                            <span class="metric-value-details" style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">${position.current_balances.replace(' & ', '<br>')}</span>
                         </div>
                         <div class="metric">
-                            <span class="metric-label">Initial Balances</span>
-                            <span class="metric-value-details">${position.initial_state.balances}</span>
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Initial Balances</span>
+                            <span class="metric-value-details" style="font-weight: 600; color: var(--color-text-primary); font-size: 1em;">${position.initial_state.balances.replace(' & ', '<br>')}</span>
                         </div>
                         <div class="metric">
                             <span class="metric-label">Creation Date</span>
@@ -276,10 +276,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function formatWalletAddress(address) {
-        if (address.length <= 10) {
-            return address; // Return as is if too short to format
+        if (window.innerWidth <= 768) { // Mobile view
+            return `...${address.substring(address.length - 4)}`;
+        } else { // Desktop view
+            if (address.length <= 10) {
+                return address; // Return as is if too short to format
+            }
+            return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
         }
-        return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
     }
 
     // Initial UI update on page load
