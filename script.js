@@ -91,6 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
         positionsContainer.innerHTML = ''; // Clear previous content
 
         data.positions.forEach(position => {
+            // Calculate Position Balance Gain/Loss
+            const initialValue = parseFloat(position.initial_state.usd_value.replace(/[^\d.-]/g, ''));
+            const currentValue = parseFloat(position.estimated_value_usd.replace(/[^\d.-]/g, ''));
+            position.position_balance_gain_loss_usd = currentValue - initialValue;
+            position.position_balance_gain_loss_percentage = (initialValue > 0) ? (position.position_balance_gain_loss_usd / initialValue) * 100 : 0;
+
             const card = document.createElement('div');
             card.classList.add('position-card');
 
@@ -212,6 +218,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="metric">
                             <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Annual Earnings</span>
                             <span class="metric-value value-positive" style="font-weight: 700; font-size: 1.1em;">$${position.annual_projected_usd_earnings}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label" style="font-weight: 500; font-size: 0.9em;">Position G/L</span>
+                            <div class="metric-value-container">
+                                <span class="metric-value ${position.position_balance_gain_loss_usd >= 0 ? 'value-positive' : 'value-negative'}" style="font-weight: 700; font-size: 1.1em;">
+                                    $${position.position_balance_gain_loss_usd.toFixed(2)} (${position.position_balance_gain_loss_percentage.toFixed(2)}%)
+                                </span>
+                            </div>
                         </div>
                     </div>
                     <div class="card-section">
