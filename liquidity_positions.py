@@ -25,6 +25,8 @@ Features:
 - Projected Impermanent Loss and time to breakeven.
 """
 
+from dotenv import load_dotenv
+load_dotenv()
 import json
 from web3 import Web3
 import requests
@@ -32,6 +34,13 @@ from decimal import Decimal, getcontext
 from datetime import datetime, timedelta # Import timedelta
 import traceback
 import os # Import os for environment variable
+import os
+from sqlalchemy import create_engine, text
+
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL is not set in the environment")
+engine = create_engine(DATABASE_URL)
 
 # Set precision for Decimal calculations
 getcontext().prec = 50
@@ -40,10 +49,10 @@ getcontext().prec = 50
 # Sonic RPC endpoint
 RPC_URL = os.environ.get("RPC_URL", "https://rpc.soniclabs.com") # Get from env or fallback
 # File to cache initial position data
+DATABASE_FILENAME = "positions.db" # <-- REPLACE CACHE_FILENAME
 CACHE_FILENAME = "position_initial_data.json"
 # Time in seconds to cache prices (e.g., 5 minutes = 300 seconds)
 PRICE_CACHE_DURATION = 60 # 1 minute TTL for pool prices
-
 # Global in-memory cache for prices
 _price_cache = {}
 _price_cache_timestamp = datetime.min
@@ -105,18 +114,60 @@ ERC20_ABI = [{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","n
 
 
 # --- CACHE FUNCTIONS ---
-def load_cache():
-    """Loads the initial position data cache from a JSON file."""
-    try:
-        with open(CACHE_FILENAME, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+# def load_cache():
+#     """Loads the initial position data cache from a JSON file."""
+#     try:
+#         with open(CACHE_FILENAME, 'r') as f:
+#             return json.load(f)
+#     except (FileNotFoundError, json.JSONDecodeError):
+#         return {}
 
-def save_cache(data):
-    """Saves the cache data to a JSON file."""
-    with open(CACHE_FILENAME, 'w') as f:
-        json.dump(data, f, indent=4)
+# def save_cache(data):
+#     """Saves the cache data to a JSON file."""
+#     with open(CACHE_FILENAME, 'w') as f:
+#         json.dump(data, f, indent=4)
+
+# ADD THESE NEW FUNCTIONS to liquidity_positions.py
+
+def db_load_initial_positions():
+    """Loads all initial position data from the PostgreSQL database."""
+    initial_data = {}
+    select_sql = text("SELECT * FROM initial_positions")
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(select_sql).fetchall()
+            for row in rows:
+                token_id, date, block, amount0, amount1, price = row
+                initial_data[token_id] = {
+                    'date': date, 'block': block, 'amount0': int(amount0),
+                    'amount1': int(amount1), 'price': price
+                }
+    except Exception as e:
+        print(f"Database error while loading positions: {e}")
+    return initial_data
+
+def db_save_initial_position(token_id, data):
+    """Saves a single position to PostgreSQL. If it exists, it's updated."""
+    upsert_sql = text("""
+        INSERT INTO initial_positions (token_id, creation_date, block_number, amount0, amount1, price)
+        VALUES (:token_id, :date, :block, :amount0, :amount1, :price)
+        ON CONFLICT (token_id) DO UPDATE SET
+            creation_date = EXCLUDED.creation_date,
+            block_number = EXCLUDED.block_number,
+            amount0 = EXCLUDED.amount0,
+            amount1 = EXCLUDED.amount1,
+            price = EXCLUDED.price;
+    """)
+    try:
+        with engine.connect() as conn:
+            conn.execute(upsert_sql, {
+                "token_id": token_id, "date": data['date'], "block": data['block'],
+                "amount0": str(data['amount0']), "amount1": str(data['amount1']),
+                "price": data['price']
+            })
+            conn.commit()
+    except Exception as e:
+        print(f"Database error while saving position {token_id}: {e}")
 
 # --- HELPER FUNCTIONS ---
 
@@ -525,7 +576,7 @@ def find_and_display_positions(wallet_address):
         if not web3.is_connected():
             return {"error": f"Failed to connect to Sonic RPC at {RPC_URL}"}
 
-        initial_data_cache = load_cache()
+        initial_data_cache = db_load_initial_positions()
 
         # Pre-fetch prices for known tokens using the new cached function
         price_cache = {}
@@ -562,7 +613,7 @@ def find_and_display_positions(wallet_address):
                 else:
                     consecutive_closed += 1
 
-                if consecutive_closed >= 2:
+                if consecutive_closed >= 5:
                     break
             except Exception as e:
                 # print(f"   Warning: Skipping token {nft_contract.functions.tokenOfOwnerByIndex.w3.eth.checksum_address(wallet_address), i} due to error: {e}")
@@ -576,7 +627,7 @@ def find_and_display_positions(wallet_address):
         all_positions_data = []
         token_info_cache = {}
         total_portfolio_value = Decimal(0)
-        cache_updated = False
+        # cache_updated = False
 
         for i, pos_container in enumerate(active_positions):
             pos = pos_container['data']
@@ -598,7 +649,7 @@ def find_and_display_positions(wallet_address):
             current_price = tick_to_price(current_tick, token0_info['decimals'], token1_info['decimals'])
 
             if token_id_str not in initial_data_cache:
-                cache_updated = True
+                # cache_updated = True
                 creation_info = get_position_creation_info(web3, NFT_MANAGER_CONTRACT, token_id, wallet_address)
                 if creation_info:
                     hist_pool_info = get_pool_info(web3, token0_addr, token1_addr, creation_info['block_number'])
@@ -620,8 +671,10 @@ def find_and_display_positions(wallet_address):
                         'block': 'N/A',
                         'amount0': amount0,
                         'amount1': amount1,
-                        'price': str(current_price) # Ensure price is a string
+                        'price': str(current_price)
                     }
+
+            db_save_initial_position(token_id_str, initial_data_cache[token_id_str])
 
             position_usd_value = Decimal(0)
             price0 = price_cache.get(token0_info['symbol'])
@@ -849,8 +902,8 @@ def find_and_display_positions(wallet_address):
                 "impermanent_loss_data": il_data
             })
 
-        if cache_updated:
-            save_cache(initial_data_cache)
+        # if cache_updated:
+            # save_cache(initial_data_cache)
 
         total_daily_projected_usd_earnings = Decimal(0)
         total_annual_projected_usd_earnings = Decimal(0)

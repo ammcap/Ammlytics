@@ -1,15 +1,19 @@
+# app.py
+
 from flask import Flask, jsonify, send_from_directory, request
 from web3 import Web3
 from decimal import Decimal
 import os
 
 # Import your liquidity_positions.py functions
+# --- THIS SECTION IS UPDATED ---
 from liquidity_positions import (
     find_and_display_positions, RPC_URL,
     NFT_MANAGER_CONTRACT, VOTER_CONTRACT,
     KNOWN_POOLS, KNOWN_TOKENS, NFT_MANAGER_ABI, POOL_ABI,
-    VOTER_ABI, GAUGE_V3_ABI, ERC20_ABI, CACHE_FILENAME,
-    load_cache, save_cache, get_position_creation_info,
+    VOTER_ABI, GAUGE_V3_ABI, ERC20_ABI, # <-- CACHE_FILENAME removed
+    # load_cache, save_cache have been removed as they are no longer used
+    get_position_creation_info,
     format_amount, get_token_info,
     tick_to_price, calculate_token_amounts, get_pool_info,
     get_emissions_rewards, calculate_il_percentage, format_timedelta
@@ -42,10 +46,8 @@ def get_data():
         return jsonify({"error": "Wallet address is required."}), 400
 
     try:
-        web3_instance = Web3(Web3.HTTPProvider(RPC_URL))
-        if not web3_instance.is_connected():
-            return jsonify({"error": f"Failed to connect to Sonic RPC at {RPC_URL}"}), 500
-
+        # The Web3 instance is already created in liquidity_positions.py
+        # You can call the main function directly.
         data = find_and_display_positions(wallet_address)
         return jsonify(data), 200, {'Content-Type': 'application/json'}
     except Exception as e:
