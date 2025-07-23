@@ -1,0 +1,30 @@
+{
+  "name": "ammlytics",
+  "version": "1.0.0",
+  "description": "A concentrated liquidity position tracker for Orca DEX on Solana.",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "ts-node src/main.ts",
+    "build": "tsc",
+    "serve": "node dist/main.js"
+  },
+  "keywords": [
+    "solana",
+    "orca",
+    "liquidity",
+    "tracker"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@orca-so/whirlpools": "^3.0.0",
+    "@solana/web3.js": "^1.98.2",
+    "@solana/kit": "^2.3.0",
+    "decimal.js": "^10.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
