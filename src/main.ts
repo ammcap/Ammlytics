@@ -1,7 +1,6 @@
-// src/main.ts
-
 import { createSolanaRpc, address } from '@solana/kit';
 import { fetchPositionsForOwner } from '@orca-so/whirlpools';
+import { fetchWhirlpool } from '@orca-so/whirlpools-client';
 import { SOLANA_RPC_ENDPOINT, WALLET_TO_CHECK } from './config';
 
 async function fetchAndLogPositions() {
@@ -21,25 +20,25 @@ async function fetchAndLogPositions() {
 
     console.log(`Found ${positions.length} positions:\n`);
 
-    positions.forEach((position, index) => {
-      // Type guard to ensure we are dealing with a single Position, not a PositionBundle
+    for (const position of positions) {
       if (!position.isPositionBundle) {
-        console.log(`------------------ Position ${index + 1} ------------------`);
+        console.log(`------------------ Position ------------------`);
         console.log(`  Whirlpool Address: ${position.data.whirlpool}`);
         console.log(`  Position Address: ${position.address}`);
+        const pool = await fetchWhirlpool(mainnetRpc, address(position.data.whirlpool));
+        console.log(`  Pool Data: ${JSON.stringify(pool, (key, value) => typeof value === 'bigint' ? value.toString() : value, 2)}`);
         console.log(`  Liquidity: ${position.data.liquidity.toString()}`);
         console.log(`  Tick Range: [${position.data.tickLowerIndex}, ${position.data.tickUpperIndex}]`);
         console.log(`  Fee Owed A: ${position.data.feeOwedA.toString()}`);
         console.log(`  Fee Owed B: ${position.data.feeOwedB.toString()}`);
-        console.log('----------------------------------------------------\n');
+        console.log('--------------------------------------------\n');
       } else {
-        console.log(`------------------ Position Bundle ${index + 1} ------------------`);
+        console.log(`------------------ Position Bundle ------------------`);
         console.log(`  Bundle Address: ${position.address}`);
         console.log('  (This is a bundled position. Detailed breakdown not yet implemented.)');
         console.log('----------------------------------------------------\n');
       }
-    });
-
+    }
   } catch (error) {
     console.error('Error fetching positions:', error);
   }

@@ -36,3 +36,7 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Doc References
+orca_whirlpools_docs
+orca_whirlpools-client_docs
