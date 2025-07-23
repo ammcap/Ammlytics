@@ -1,7 +1,17 @@
 import { address, createSolanaRpc, mainnet, assertAccountExists } from "@solana/kit";
 import { fetchPositionsForOwner } from "@orca-so/whirlpools";
-import { fetchMaybeWhirlpool } from "@orca-so/whirlpools-client";
-import { tickIndexToPrice, decreaseLiquidityQuote } from "@orca-so/whirlpools-core";
+import {
+  fetchMaybeWhirlpool,
+  fetchAllTickArray,
+  getTickArrayAddress,
+} from "@orca-so/whirlpools-client";
+import {
+  tickIndexToPrice,
+  decreaseLiquidityQuote,
+  collectFeesQuote,
+  getTickArrayStartTickIndex,
+  getTickIndexInArray,
+} from "@orca-so/whirlpools-core";
 import { getMintDecoder } from "@solana-program/token";
 import { Buffer } from "buffer";
 import { Decimal } from "decimal.js";
@@ -74,6 +84,43 @@ async function fetchAndLogPositions() {
       const priceLower = tickIndexToPrice(positionData.tickLowerIndex, tokenDecimalsA, tokenDecimalsB);
       const priceUpper = tickIndexToPrice(positionData.tickUpperIndex, tokenDecimalsA, tokenDecimalsB);
 
+      // To get the latest fees, we need to fetch the tick arrays
+      const lowerTickArrayStartIndex = getTickArrayStartTickIndex(
+        positionData.tickLowerIndex,
+        whirlpool.tickSpacing
+      );
+      const upperTickArrayStartIndex = getTickArrayStartTickIndex(
+        positionData.tickUpperIndex,
+        whirlpool.tickSpacing
+      );
+
+      const [lowerTickArrayAddress] = await getTickArrayAddress(
+        positionData.whirlpool,
+        lowerTickArrayStartIndex
+      );
+      const [upperTickArrayAddress] = await getTickArrayAddress(
+        positionData.whirlpool,
+        upperTickArrayStartIndex
+      );
+
+      const [lowerTickArray, upperTickArray] = await fetchAllTickArray(rpc, [
+        lowerTickArrayAddress,
+        upperTickArrayAddress,
+      ]);
+
+      const lowerTick = lowerTickArray.data.ticks[getTickIndexInArray(
+          positionData.tickLowerIndex,
+          lowerTickArrayStartIndex,
+          whirlpool.tickSpacing
+      )];
+      const upperTick = upperTickArray.data.ticks[getTickIndexInArray(
+          positionData.tickUpperIndex,
+          upperTickArrayStartIndex,
+          whirlpool.tickSpacing
+      )];
+
+      const feesQuote = collectFeesQuote(whirlpool, positionData, lowerTick, upperTick);
+
       const quote = decreaseLiquidityQuote(
         positionData.liquidity,
         0, // slippage tolerance bps - 0 for read-only
@@ -81,9 +128,9 @@ async function fetchAndLogPositions() {
         positionData.tickLowerIndex,
         positionData.tickUpperIndex
       );
-      
-      const feeA = toDecimal(positionData.feeOwedA, tokenDecimalsA);
-      const feeB = toDecimal(positionData.feeOwedB, tokenDecimalsB);
+
+      const feeA = toDecimal(feesQuote.feeOwedA, tokenDecimalsA);
+      const feeB = toDecimal(feesQuote.feeOwedB, tokenDecimalsB);
 
       const amountA = toDecimal(quote.tokenEstA, tokenDecimalsA);
       const amountB = toDecimal(quote.tokenEstB, tokenDecimalsB);
