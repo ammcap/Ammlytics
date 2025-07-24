@@ -15,11 +15,89 @@ import {
 import { getMintDecoder } from "@solana-program/token";
 import { Buffer } from "buffer";
 import { Decimal } from "decimal.js";
+import { Sequelize, DataTypes } from "sequelize";
 import { SOLANA_RPC_ENDPOINT, WALLET_TO_CHECK, HELIUS_RPC_URL } from "./config";
+import { Connection, PublicKey } from "@solana/web3.js";
+
+// Initialize Sequelize with SQLite
+const sequelize = new Sequelize({
+  dialect: "sqlite",
+  storage: "./database.sqlite",
+  logging: false, // Disable logging of SQL queries
+});
+
+// Define the Position model
+const Position = sequelize.define("Position", {
+  position_address: {
+    type: DataTypes.STRING,
+    primaryKey: true,
+  },
+  pool_address: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
+  liquidity_a: {
+    type: DataTypes.DECIMAL,
+    allowNull: false,
+  },
+  liquidity_b: {
+    type: DataTypes.DECIMAL,
+    allowNull: false,
+  },
+  price_range_lower: {
+    type: DataTypes.DECIMAL,
+    allowNull: false,
+  },
+  price_range_upper: {
+    type: DataTypes.DECIMAL,
+    allowNull: false,
+  },
+  pending_yield_a: {
+    type: DataTypes.DECIMAL,
+    allowNull: false,
+  },
+  pending_yield_b: {
+    type: DataTypes.DECIMAL,
+    allowNull: false,
+  },
+  creation_date: {
+    type: DataTypes.DATE,
+    allowNull: true, // To be implemented later
+  },
+  last_updated: {
+    type: DataTypes.DATE,
+    allowNull: false,
+  },
+  /**
+   * @deprecated metadata is intended for storing deposits, withdrawals, and fee claims
+   */
+  metadata: {
+    type: DataTypes.JSON,
+    allowNull: true,
+  },
+}, {
+  timestamps: false, // Disable automatic timestamps
+});
 
 // Helper to convert a BN-like object to a Decimal with the correct number of decimals
 function toDecimal(amount: { toString: () => string }, decimals: number): Decimal {
   return new Decimal(amount.toString()).div(new Decimal(10).pow(decimals));
+}
+
+async function getCreationDate(connection: Connection, mintAddress: PublicKey): Promise<Date | null> {
+  try {
+    const signatures = await connection.getSignaturesForAddress(mintAddress);
+    if (signatures.length > 0) {
+      const earliestSignature = signatures[signatures.length - 1];
+      const transaction = await connection.getTransaction(earliestSignature.signature, {maxSupportedTransactionVersion: 0});
+      if (transaction && transaction.blockTime) {
+        return new Date(transaction.blockTime * 1000);
+      }
+    }
+  } catch (error) {
+    console.error(`Error fetching creation date for mint ${mintAddress.toBase58()}:`, error);
+  }
+  return null;
 }
 
 async function fetchAndLogPositions() {
@@ -27,7 +105,11 @@ async function fetchAndLogPositions() {
   console.log(`Using RPC endpoint: ${HELIUS_RPC_URL}\n`);
 
   try {
+    // Sync the model with the database
+    await sequelize.sync();
+
     const rpc = createSolanaRpc(mainnet(HELIUS_RPC_URL));
+    const connection = new Connection(HELIUS_RPC_URL, "confirmed");
     const owner = address(WALLET_TO_CHECK);
 
     const positions = await fetchPositionsForOwner(rpc, owner);
@@ -135,9 +217,27 @@ async function fetchAndLogPositions() {
       const amountA = toDecimal(quote.tokenEstA, tokenDecimalsA);
       const amountB = toDecimal(quote.tokenEstB, tokenDecimalsB);
 
+      const creationDate = await getCreationDate(connection, new PublicKey(positionData.positionMint));
+
+      // Upsert position data into the database
+      await Position.upsert({
+        position_address: position.address,
+        pool_address: positionData.whirlpool.toString(),
+        liquidity_a: amountA,
+        liquidity_b: amountB,
+        price_range_lower: priceLower,
+        price_range_upper: priceUpper,
+        pending_yield_a: feeA,
+        pending_yield_b: feeB,
+        creation_date: creationDate,
+        last_updated: new Date(),
+        metadata: {},
+      });
+
       console.log(`------------------ Position ------------------`);
       console.log(`  Pool: ${whirlpool.tokenMintA.toString().substring(0,4)}.../${whirlpool.tokenMintB.toString().substring(0,4)}...`);
       console.log(`  Position Address: ${position.address}`);
+      console.log(`  Creation Date: ${creationDate ? creationDate.toISOString() : 'Not found'}`);
       console.log(`  Liquidity (Token A): ${amountA.toFixed(tokenDecimalsA)}`);
       console.log(`  Liquidity (Token B): ${amountB.toFixed(tokenDecimalsB)}`);
       console.log(`  Price Range: [${priceLower.toFixed(tokenDecimalsB)} - ${priceUpper.toFixed(tokenDecimalsB)}]`);
