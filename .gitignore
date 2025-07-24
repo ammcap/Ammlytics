@@ -40,3 +40,7 @@ Thumbs.db
 # Doc References
 orca_whirlpools_docs
 orca_whirlpools-client_docs
+
+database.sqlite
+GEMINI.md
+whirlpools-docs/
