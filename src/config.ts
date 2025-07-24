@@ -1,4 +1,15 @@
-// src/config.ts
+import dotenv from 'dotenv';
 
-export const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
-export const WALLET_TO_CHECK = '3SY2FWkqcV8PvHrQ6uYVbRWCyZPBDp3dSJQDYiugoAvM';
+dotenv.config();
+
+function getEnvVariable(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing environment variable: ${key}`);
+  }
+  return value;
+}
+
+export const SOLANA_RPC_ENDPOINT = getEnvVariable("SOLANA_RPC_ENDPOINT");
+export const WALLET_TO_CHECK = getEnvVariable("WALLET_TO_CHECK");
+export const HELIUS_RPC_URL = getEnvVariable("HELIUS_RPC_URL");

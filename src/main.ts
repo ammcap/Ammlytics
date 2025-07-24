@@ -15,7 +15,7 @@ import {
 import { getMintDecoder } from "@solana-program/token";
 import { Buffer } from "buffer";
 import { Decimal } from "decimal.js";
-import { SOLANA_RPC_ENDPOINT, WALLET_TO_CHECK } from "./config";
+import { SOLANA_RPC_ENDPOINT, WALLET_TO_CHECK, HELIUS_RPC_URL } from "./config";
 
 // Helper to convert a BN-like object to a Decimal with the correct number of decimals
 function toDecimal(amount: { toString: () => string }, decimals: number): Decimal {
@@ -24,10 +24,10 @@ function toDecimal(amount: { toString: () => string }, decimals: number): Decima
 
 async function fetchAndLogPositions() {
   console.log(`Fetching liquidity positions for wallet: ${WALLET_TO_CHECK}`);
-  console.log(`Using RPC endpoint: ${SOLANA_RPC_ENDPOINT}\n`);
+  console.log(`Using RPC endpoint: ${HELIUS_RPC_URL}\n`);
 
   try {
-    const rpc = createSolanaRpc(mainnet(SOLANA_RPC_ENDPOINT));
+    const rpc = createSolanaRpc(mainnet(HELIUS_RPC_URL));
     const owner = address(WALLET_TO_CHECK);
 
     const positions = await fetchPositionsForOwner(rpc, owner);
