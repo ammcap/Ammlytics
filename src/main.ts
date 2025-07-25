@@ -147,9 +147,9 @@ async function getPositionEvents(
               amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
             }
           } else {
-            if (info.source === vaultA.toBase58() && info.authority === owner) {
+            if (info.source === vaultA.toBase58()) {
               amountA = amountA.add(amountDec.div(new Decimal(10).pow(decimalsA)));
-            } else if (info.source === vaultB.toBase58() && info.authority === owner) {
+            } else if (info.source === vaultB.toBase58()) {
               amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
             }
           }
@@ -170,9 +170,9 @@ async function getPositionEvents(
                   amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
                 }
               } else {
-                if (info.source === vaultA.toBase58() && info.authority === owner) {
+                if (info.source === vaultA.toBase58()) {
                   amountA = amountA.add(amountDec.div(new Decimal(10).pow(decimalsA)));
-                } else if (info.source === vaultB.toBase58() && info.authority === owner) {
+                } else if (info.source === vaultB.toBase58()) {
                   amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
                 }
               }
