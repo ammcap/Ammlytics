@@ -1,4 +1,4 @@
-import { address, createSolanaRpc, mainnet, assertAccountExists } from "@solana/kit";
+import { address, createSolanaRpc, mainnet } from "@solana/kit";
 import { fetchPositionsForOwner } from "@orca-so/whirlpools";
 import {
   fetchMaybeWhirlpool,
@@ -17,7 +17,7 @@ import { Buffer } from "buffer";
 import { Decimal } from "decimal.js";
 import { Sequelize, DataTypes } from "sequelize";
 import { SOLANA_RPC_ENDPOINT, WALLET_TO_CHECK, HELIUS_RPC_URL } from "./config";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, ParsedTransactionWithMeta } from "@solana/web3.js";
 
 // Initialize Sequelize with SQLite
 const sequelize = new Sequelize({
@@ -36,11 +36,11 @@ const Position = sequelize.define("Position", {
     type: DataTypes.STRING,
     allowNull: false,
   },
-  liquidity_a: {
+  initial_a: {
     type: DataTypes.DECIMAL,
     allowNull: false,
   },
-  liquidity_b: {
+  initial_b: {
     type: DataTypes.DECIMAL,
     allowNull: false,
   },
@@ -62,15 +62,12 @@ const Position = sequelize.define("Position", {
   },
   creation_date: {
     type: DataTypes.DATE,
-    allowNull: true, // To be implemented later
+    allowNull: true,
   },
   last_updated: {
     type: DataTypes.DATE,
     allowNull: false,
   },
-  /**
-   * @deprecated metadata is intended for storing deposits, withdrawals, and fee claims
-   */
   metadata: {
     type: DataTypes.JSON,
     allowNull: true,
@@ -84,20 +81,193 @@ function toDecimal(amount: { toString: () => string }, decimals: number): Decima
   return new Decimal(amount.toString()).div(new Decimal(10).pow(decimals));
 }
 
-async function getCreationDate(connection: Connection, mintAddress: PublicKey): Promise<Date | null> {
+interface Event {
+  type: 'deposit' | 'withdrawal' | 'feeClaim';
+  tokenA: Decimal;
+  tokenB: Decimal;
+  date: Date;
+  tx: string;
+}
+
+async function getPositionEvents(
+  connection: Connection,
+  positionAddress: string,
+  owner: string,
+  vaultA: PublicKey,
+  vaultB: PublicKey,
+  decimalsA: number,
+  decimalsB: number
+): Promise<Event[]> {
   try {
-    const signatures = await connection.getSignaturesForAddress(mintAddress);
-    if (signatures.length > 0) {
-      const earliestSignature = signatures[signatures.length - 1];
-      const transaction = await connection.getTransaction(earliestSignature.signature, {maxSupportedTransactionVersion: 0});
-      if (transaction && transaction.blockTime) {
-        return new Date(transaction.blockTime * 1000);
+    const signatures = await connection.getSignaturesForAddress(new PublicKey(positionAddress), { limit: 1000 });
+    if (signatures.length === 0) {
+      return [];
+    }
+
+    const events: Event[] = [];
+
+    for (const sig of signatures) {
+      const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+      if (!tx || !tx.blockTime) continue;
+
+      const date = new Date(tx.blockTime * 1000);
+      const txId = sig.signature;
+
+      let eventType: Event['type'] | null = null;
+
+      // Check logMessages for instruction type
+      if (tx.meta && tx.meta.logMessages) {
+        for (const log of tx.meta.logMessages) {
+          if (log.includes("Instruction: IncreaseLiquidity")) {
+            eventType = 'deposit';
+          } else if (log.includes("Instruction: DecreaseLiquidity")) {
+            eventType = 'withdrawal';
+          } else if (log.includes("Instruction: CollectFees")) {
+            eventType = 'feeClaim';
+          }
+          if (eventType) break;
+        }
+      }
+
+      if (!eventType) continue;
+
+      // Sum transfers for amounts
+      let amountA = new Decimal(0);
+      let amountB = new Decimal(0);
+
+      // Parse outer instructions
+      for (const ix of tx.transaction.message.instructions) {
+        if ("parsed" in ix && ix.program === "spl-token" && ix.parsed.type === "transfer") {
+          const info = ix.parsed.info;
+          const amountDec = new Decimal(info.amount);
+          if (eventType === 'deposit') {
+            if (info.destination === vaultA.toBase58()) {
+              amountA = amountA.add(amountDec.div(new Decimal(10).pow(decimalsA)));
+            } else if (info.destination === vaultB.toBase58()) {
+              amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
+            }
+          } else {
+            if (info.source === vaultA.toBase58() && info.authority === owner) {
+              amountA = amountA.add(amountDec.div(new Decimal(10).pow(decimalsA)));
+            } else if (info.source === vaultB.toBase58() && info.authority === owner) {
+              amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
+            }
+          }
+        }
+      }
+
+      // Parse inner instructions
+      if (tx.meta?.innerInstructions) {
+        for (const innerSet of tx.meta.innerInstructions) {
+          for (const ix of innerSet.instructions) {
+            if ("parsed" in ix && ix.program === "spl-token" && ix.parsed.type === "transfer") {
+              const info = ix.parsed.info;
+              const amountDec = new Decimal(info.amount);
+              if (eventType === 'deposit') {
+                if (info.destination === vaultA.toBase58()) {
+                  amountA = amountA.add(amountDec.div(new Decimal(10).pow(decimalsA)));
+                } else if (info.destination === vaultB.toBase58()) {
+                  amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
+                }
+              } else {
+                if (info.source === vaultA.toBase58() && info.authority === owner) {
+                  amountA = amountA.add(amountDec.div(new Decimal(10).pow(decimalsA)));
+                } else if (info.source === vaultB.toBase58() && info.authority === owner) {
+                  amountB = amountB.add(amountDec.div(new Decimal(10).pow(decimalsB)));
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (amountA.gt(0) || amountB.gt(0)) {
+        events.push({
+          type: eventType,
+          tokenA: amountA,
+          tokenB: amountB,
+          date,
+          tx: txId,
+        });
       }
     }
+
+    return events.sort((a, b) => a.date.getTime() - b.date.getTime()); // Chronological
   } catch (error) {
-    console.error(`Error fetching creation date for mint ${mintAddress.toBase58()}:`, error);
+    console.error(`Error fetching events for position ${positionAddress}:`, error);
+    return [];
   }
-  return null;
+}
+
+async function getPositionCreationInfo(
+  connection: Connection,
+  mintAddress: PublicKey,
+  vaultA: PublicKey,
+  vaultB: PublicKey,
+  decimalsA: number,
+  decimalsB: number
+): Promise<{ date: Date | null; initialA: Decimal; initialB: Decimal }> {
+  let initialA = new Decimal(0);
+  let initialB = new Decimal(0);
+
+  try {
+    const signatures = await connection.getSignaturesForAddress(mintAddress);
+    if (signatures.length === 0) {
+      return { date: null, initialA, initialB };
+    }
+
+    const earliestSignature = signatures[signatures.length - 1];
+    const tx: ParsedTransactionWithMeta | null = await connection.getParsedTransaction(earliestSignature.signature, {
+      maxSupportedTransactionVersion: 0,
+    });
+
+    if (!tx || !tx.blockTime) {
+      return { date: null, initialA, initialB };
+    }
+
+    const date = new Date(tx.blockTime * 1000);
+
+    // Parse outer instructions for SPL transfers
+    for (const ix of tx.transaction.message.instructions) {
+      if ("parsed" in ix && ix.program === "spl-token" && ix.parsed.type === "transfer") {
+        const info = ix.parsed.info;
+        const dest = info.destination;
+        let amountDec: Decimal;
+        if (dest === vaultA.toBase58()) {
+          amountDec = new Decimal(info.amount).div(new Decimal(10).pow(decimalsA));
+          initialA = initialA.add(amountDec);
+        } else if (dest === vaultB.toBase58()) {
+          amountDec = new Decimal(info.amount).div(new Decimal(10).pow(decimalsB));
+          initialB = initialB.add(amountDec);
+        }
+      }
+    }
+
+    // Parse inner instructions for SPL transfers (in case of nested)
+    if (tx.meta?.innerInstructions) {
+      for (const innerSet of tx.meta.innerInstructions) {
+        for (const ix of innerSet.instructions) {
+          if ("parsed" in ix && ix.program === "spl-token" && ix.parsed.type === "transfer") {
+            const info = ix.parsed.info;
+            const dest = info.destination;
+            let amountDec: Decimal;
+            if (dest === vaultA.toBase58()) {
+              amountDec = new Decimal(info.amount).div(new Decimal(10).pow(decimalsA));
+              initialA = initialA.add(amountDec);
+            } else if (dest === vaultB.toBase58()) {
+              amountDec = new Decimal(info.amount).div(new Decimal(10).pow(decimalsB));
+              initialB = initialB.add(amountDec);
+            }
+          }
+        }
+      }
+    }
+
+    return { date, initialA, initialB };
+  } catch (error) {
+    console.error(`Error fetching creation info for mint ${mintAddress.toBase58()}:`, error);
+    return { date: null, initialA, initialB };
+  }
 }
 
 async function fetchAndLogPositions() {
@@ -105,7 +275,7 @@ async function fetchAndLogPositions() {
   console.log(`Using RPC endpoint: ${HELIUS_RPC_URL}\n`);
 
   try {
-    // Sync the model with the database
+    // Sync the model with the database (add { force: true } once if recreating table)
     await sequelize.sync();
 
     const rpc = createSolanaRpc(mainnet(HELIUS_RPC_URL));
@@ -217,32 +387,64 @@ async function fetchAndLogPositions() {
       const amountA = toDecimal(quote.tokenEstA, tokenDecimalsA);
       const amountB = toDecimal(quote.tokenEstB, tokenDecimalsB);
 
-      const creationDate = await getCreationDate(connection, new PublicKey(positionData.positionMint));
+      const creationInfo = await getPositionCreationInfo(
+        connection,
+        new PublicKey(positionData.positionMint),
+        new PublicKey(whirlpool.tokenVaultA),
+        new PublicKey(whirlpool.tokenVaultB),
+        tokenDecimalsA,
+        tokenDecimalsB
+      );
+
+      const creationDate = creationInfo.date;
+      const initialA = creationInfo.initialA;
+      const initialB = creationInfo.initialB;
+
+      const events = await getPositionEvents(
+        connection,
+        position.address,
+        WALLET_TO_CHECK,
+        new PublicKey(whirlpool.tokenVaultA),
+        new PublicKey(whirlpool.tokenVaultB),
+        tokenDecimalsA,
+        tokenDecimalsB
+      );
 
       // Upsert position data into the database
       await Position.upsert({
         position_address: position.address,
         pool_address: positionData.whirlpool.toString(),
-        liquidity_a: amountA,
-        liquidity_b: amountB,
+        initial_a: initialA.toString(),
+        initial_b: initialB.toString(),
         price_range_lower: priceLower,
         price_range_upper: priceUpper,
         pending_yield_a: feeA,
         pending_yield_b: feeB,
         creation_date: creationDate,
         last_updated: new Date(),
-        metadata: {},
+        metadata: { events },
       });
 
       console.log(`------------------ Position ------------------`);
       console.log(`  Pool: ${whirlpool.tokenMintA.toString().substring(0,4)}.../${whirlpool.tokenMintB.toString().substring(0,4)}...`);
       console.log(`  Position Address: ${position.address}`);
       console.log(`  Creation Date: ${creationDate ? creationDate.toISOString() : 'Not found'}`);
+      console.log(`  Initial (Token A): ${initialA.toFixed(tokenDecimalsA)}`);
+      console.log(`  Initial (Token B): ${initialB.toFixed(tokenDecimalsB)}`);
       console.log(`  Liquidity (Token A): ${amountA.toFixed(tokenDecimalsA)}`);
       console.log(`  Liquidity (Token B): ${amountB.toFixed(tokenDecimalsB)}`);
       console.log(`  Price Range: [${priceLower.toFixed(tokenDecimalsB)} - ${priceUpper.toFixed(tokenDecimalsB)}]`);
       console.log(`  Pending Yield A: ${feeA.toFixed(tokenDecimalsA)}`);
       console.log(`  Pending Yield B: ${feeB.toFixed(tokenDecimalsB)}`);
+
+      if (events.length > 0) {
+        console.log(`  Events:`);
+        for (const event of events) {
+          console.log(`    - ${event.type} on ${event.date.toISOString()}: Token A = ${event.tokenA.toFixed(tokenDecimalsA)}, Token B = ${event.tokenB.toFixed(tokenDecimalsB)} (tx: ${event.tx.substring(0, 10)}...)`);
+        }
+      } else {
+        console.log(`  No events found.`);
+      }
       console.log('--------------------------------------------\n');
     }
   } catch (error) {

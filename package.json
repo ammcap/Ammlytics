@@ -24,6 +24,7 @@
     "@solana/kit": "^2.1.0",
     "@solana/web3.js": "^1.98.2",
     "@solana/spl-token": "^0.4.6",
+    "axios": "^1.7.2",
     "decimal.js": "^10.4.3",
     "dotenv": "^17.2.0",
     "sequelize": "^6.37.3",
